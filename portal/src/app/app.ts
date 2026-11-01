@@ -43,7 +43,7 @@ interface UsageSummary {
   errors: number;
 }
 
-const apiBase = location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://api.bancokike.com';
+const apiBase = location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://banco-kike-api.onrender.com';
 
 @Component({
   imports: [CommonModule, FormsModule],
@@ -52,6 +52,7 @@ const apiBase = location.hostname === 'localhost' ? 'http://localhost:3000' : 'h
   templateUrl: './app.html',
 })
 export class App {
+  protected readonly apiDocsUrl = `${apiBase}/docs`;
   private readonly http = inject(HttpClient);
   protected readonly organization = signal<Organization | null>(null);
   protected readonly applications = signal<Application[]>([]);

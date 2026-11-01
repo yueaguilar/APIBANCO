@@ -15,11 +15,16 @@ const env = z.object({
   DATABASE_URL: z.string().url(),
   SESSION_SECRET: z.string().min(32),
   PORT: z.coerce.number().int().positive().default(3000),
-  PORTAL_ORIGIN: z.string().url().default('http://localhost:4200'),
+  PORTAL_ORIGIN: z.string().url().optional(),
   API_ORIGIN: z.string().url().default('http://localhost:3000'),
   NODE_ENV: z.string().default('development'),
 }).parse(process.env);
-const allowedBrowserOrigins = new Set([env.PORTAL_ORIGIN, env.API_ORIGIN]);
+const allowedBrowserOrigins = new Set([
+  env.API_ORIGIN,
+  ...(env.PORTAL_ORIGIN ? [env.PORTAL_ORIGIN] : env.NODE_ENV === 'production' ? [] : ['http://localhost:4200']),
+]);
+const isAllowedBrowserOrigin = (origin: string) =>
+  allowedBrowserOrigins.has(origin) || /^https:\/\/[a-z0-9-]+\.(?:web\.app|firebaseapp\.com)$/.test(origin);
 
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
@@ -57,7 +62,7 @@ const docsHelmet = helmet({
 const defaultHelmet = helmet();
 app.use((req, res, next) => (req.path.startsWith('/docs') ? docsHelmet : defaultHelmet)(req, res, next));
 app.use(cors({
-  origin: env.PORTAL_ORIGIN,
+  origin: (origin, callback) => callback(null, !origin || isAllowedBrowserOrigin(origin)),
   credentials: true,
   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -77,7 +82,7 @@ const openApi = {
     version: '0.1.0',
     description: 'Portal y API de integraciones. Las operaciones bancarias reales no están habilitadas; use Sandbox.',
   },
-  servers: [{ url: 'https://api.bancokike.com' }],
+  servers: [{ url: env.API_ORIGIN }],
   paths: {
     '/health/live': { get: { summary: 'Estado del proceso', responses: { '200': { description: 'Proceso activo' } } } },
     '/health/ready': { get: { summary: 'Disponibilidad de la base de datos', responses: { '200': { description: 'Listo' }, '503': { description: 'No disponible' } } } },
@@ -201,7 +206,7 @@ function requireSameOrigin(req: Request, res: Response, next: NextFunction) {
     const hasSession = Boolean(parseCookies(req.headers.cookie).bk_session);
     const origin = req.get('origin');
     const invalidBody = req.method !== 'DELETE' && !req.is('application/json');
-    if (invalidBody || (origin && !allowedBrowserOrigins.has(origin)) || (hasSession && !origin)) {
+    if (invalidBody || (origin && !isAllowedBrowserOrigin(origin)) || (hasSession && !origin)) {
       return res.status(403).json({ error: 'origin_not_allowed' });
     }
   }
@@ -221,7 +226,7 @@ function setSessionCookie(res: Response, token: string) {
   res.cookie('bk_session', token, {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: env.NODE_ENV === 'production' ? 'none' : 'strict',
     path: '/',
     maxAge: 8 * 60 * 60 * 1000,
   });
@@ -391,7 +396,12 @@ app.post('/v1/auth/login', authRateLimit, async (req, res, next) => {
 });
 
 app.post('/v1/auth/logout', (_req, res) => {
-  res.clearCookie('bk_session', { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict', path: '/' });
+  res.clearCookie('bk_session', {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: env.NODE_ENV === 'production' ? 'none' : 'strict',
+    path: '/',
+  });
   res.status(204).end();
 });
 app.get('/v1/me', requireSession, async (req, res, next) => {

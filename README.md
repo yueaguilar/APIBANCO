@@ -1,6 +1,6 @@
 # BANCO KIKE API PLATFORM
 
-Monorepo independiente para el portal de desarrolladores y la API pública propuesta (`developers.bancokike.com` y `api.bancokike.com`). No modifica ni duplica el backend bancario.
+Monorepo independiente para el portal de desarrolladores y una API pública de Sandbox. No modifica ni duplica el backend bancario.
 
 ## Estado actual
 
@@ -59,16 +59,15 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 
 ## Despliegue
 
-- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL`, una clave de sesión secreta y `PORTAL_ORIGIN=https://developers.bancokike.com`. Aplicar migraciones con un procedimiento controlado antes de publicar.
-- **Portal:** ejecutar `npm --prefix portal run build` y desplegar `portal/dist/portal/browser` en un sitio Firebase Hosting dedicado. Asociar el dominio solo después de configurar TLS y CORS.
-- **DNS:** configurar los dominios/subdominios en sus proveedores. Los certificados TLS y la verificación de dominios son prerrequisitos operativos fuera del código.
+- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL` y aplicar migraciones con un procedimiento controlado antes de publicar. Render ofrece una URL `*.onrender.com` sin configurar un dominio propio.
+- **Portal:** ejecutar `npm --prefix portal run build` y desplegar `portal/dist/portal/browser` en Firebase Hosting. Firebase proporciona automáticamente una URL `*.web.app`; no hace falta asociar un dominio propio.
 
 ## Seguridad / operación
 
 - Las API keys se generan con aleatoriedad criptográfica, se almacena solo SHA-256 del valor completo y se entregan una sola vez. No ponerlas en JavaScript público, URL, repositorios ni logs.
 - Una API key identifica la aplicación; no autentica a personas. Las operaciones bancarias deben usar el flujo de identidad del banco.
 - Las API keys son credenciales de servidor. No invocar `POST /v1/integrations/ping` desde JavaScript de terceros ni incluir una clave en el widget.
-- Las cookies de sesión son `HttpOnly`, `SameSite=Strict`, `Secure` en producción y se limitan a ocho horas. Los cambios requieren JSON y validación del origen.
+- Las cookies de sesión son `HttpOnly`, `SameSite=None` y `Secure` en producción para permitir solicitudes entre Firebase Hosting y Render; en desarrollo usan `SameSite=Strict`. Se limitan a ocho horas. Los cambios requieren JSON y validación del origen.
 - El backend no registra contraseñas, tokens, API keys ni NIP. Los registros de uso no incluyen IP; el campo de origen se limita a la solicitud de prueba.
 - Aplicar la migración con el rol de Neon apropiado. El runtime debe usar un rol no superusuario y no propietario de las tablas; de lo contrario, PostgreSQL puede omitir RLS. El usuario de aplicación necesita `SELECT/INSERT/UPDATE` explícitos según las operaciones utilizadas.
 - La cuenta inicial de plataforma debe ser creada y verificada por el operador. Los administradores deben usar MFA/SSO antes de producción.

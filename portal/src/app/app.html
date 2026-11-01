@@ -10,7 +10,7 @@
         <button class="button button-quiet" type="button" (click)="logout()">Cerrar sesión</button>
       </div>
     } @else {
-      <a class="docs-link" href="https://api.bancokike.com/docs" target="_blank" rel="noopener noreferrer">Documentación ↗</a>
+      <a class="docs-link" [href]="apiDocsUrl" target="_blank" rel="noopener noreferrer">Documentación ↗</a>
     }
   </header>
 
@@ -182,7 +182,7 @@
           <p class="eyebrow">GUÍAS Y REFERENCIAS</p>
           <h3>Documentación para desarrolladores</h3>
           <p>Explora endpoints, solicitudes, respuestas y esquemas OpenAPI.</p>
-          <a class="button button-outline" href="https://api.bancokike.com/docs" target="_blank" rel="noopener noreferrer">Abrir Swagger UI ↗</a>
+          <a class="button button-outline" [href]="apiDocsUrl" target="_blank" rel="noopener noreferrer">Abrir Swagger UI ↗</a>
         </article>
       </div>
     </section>
