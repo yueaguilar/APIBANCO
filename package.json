@@ -1,0 +1,12 @@
+{
+  "name": "banco-kike-api-platform",
+  "private": true,
+  "workspaces": [
+    "api"
+  ],
+  "scripts": {
+    "api:dev": "npm --workspace api run dev",
+    "api:build": "npm --workspace api run build",
+    "portal:build": "npm --prefix portal run build"
+  }
+}

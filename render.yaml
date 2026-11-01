@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: banco-kike-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run api:build
+    startCommand: npm --workspace api run start
+    healthCheckPath: /health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORTAL_ORIGIN
+        value: https://developers.bancokike.com
+      - key: API_ORIGIN
+        value: https://api.bancokike.com
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true

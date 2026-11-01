@@ -1,0 +1,196 @@
+<main class="page-shell">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Banco Kike API Platform, inicio">
+      <span class="brand-mark">BK</span>
+      <span>BANCO KIKE <strong>API PLATFORM</strong></span>
+    </a>
+    @if (organization(); as org) {
+      <div class="topbar-account">
+        <span>{{ isPlatformAdmin() ? 'Administración de plataforma' : org.name }}</span>
+        <button class="button button-quiet" type="button" (click)="logout()">Cerrar sesión</button>
+      </div>
+    } @else {
+      <a class="docs-link" href="https://api.bancokike.com/docs" target="_blank" rel="noopener noreferrer">Documentación ↗</a>
+    }
+  </header>
+
+  <section class="hero">
+    <div>
+      <p class="eyebrow">PORTAL PARA INTEGRADORES</p>
+      <h1>Conecta tus servicios<br /><span>con Banco Kike.</span></h1>
+      <p class="hero-copy">Registra tu organización, administra aplicaciones y prepara tu integración en un entorno controlado.</p>
+    </div>
+    <div class="environment-card">
+      <span class="status-dot"></span>
+      <div><strong>Entorno Sandbox</strong><small>Operaciones reales deshabilitadas</small></div>
+    </div>
+  </section>
+
+  @if (message()) {
+    <div class="notice notice-success" role="status">{{ message() }}</div>
+  }
+  @if (error()) {
+    <div class="notice notice-error" role="alert">{{ error() }}</div>
+  }
+
+  @if (!organization()) {
+    <section class="auth-layout">
+      <div class="intro-card">
+        <p class="eyebrow">PRIMEROS PASOS</p>
+        <h2>Una integración segura empieza aquí.</h2>
+        <ul>
+          <li>Tu organización requiere aprobación antes de activar aplicaciones.</li>
+          <li>Las credenciales secretas se muestran una sola vez.</li>
+          <li>Las API keys identifican la aplicación, nunca al usuario final.</li>
+        </ul>
+      </div>
+      <form class="auth-card" (ngSubmit)="submitAuth()">
+        <p class="eyebrow">{{ registerMode() ? 'NUEVA ORGANIZACIÓN' : 'ACCESO DE ORGANIZACIONES' }}</p>
+        <h2>{{ registerMode() ? 'Solicitar registro' : 'Iniciar sesión' }}</h2>
+        @if (registerMode()) {
+          <label for="organization-name">Nombre de la organización</label>
+          <input id="organization-name" name="organizationName" [(ngModel)]="organizationName" required minlength="2" maxlength="160" autocomplete="organization" />
+        }
+        <label for="email">Correo de trabajo</label>
+        <input id="email" name="email" type="email" [(ngModel)]="email" required autocomplete="email" />
+        <label for="password">Contraseña</label>
+        <input id="password" name="password" type="password" [(ngModel)]="password" required minlength="12" maxlength="128" [autocomplete]="registerMode() ? 'new-password' : 'current-password'" />
+        <button class="button button-primary full-width" type="submit" [disabled]="loading()">
+          {{ loading() ? 'Procesando…' : (registerMode() ? 'Enviar solicitud' : 'Entrar al portal') }}
+        </button>
+        <button class="text-button" type="button" (click)="toggleMode()">
+          {{ registerMode() ? '¿Ya tienes una cuenta? Inicia sesión' : '¿Tu organización es nueva? Solicita registro' }}
+        </button>
+      </form>
+    </section>
+  } @else {
+    @if (isPlatformAdmin()) {
+      <section class="dashboard">
+        <div class="section-heading">
+          <div><p class="eyebrow">ADMINISTRACIÓN GENERAL</p><h2>Organizaciones</h2></div>
+          <span class="approval-state approved"><span class="status-dot"></span>Acceso administrativo</span>
+        </div>
+        @if (usage(); as totals) {
+          <div class="metrics-grid">
+            <article class="metric-card"><span>Solicitudes hoy</span><strong>{{ totals.today }}</strong></article>
+            <article class="metric-card"><span>Últimos 7 días</span><strong>{{ totals.last_7_days }}</strong></article>
+            <article class="metric-card"><span>Este mes</span><strong>{{ totals.this_month }}</strong></article>
+            <article class="metric-card"><span>Errores registrados</span><strong>{{ totals.errors }}</strong></article>
+          </div>
+        }
+        <article class="panel-card admin-table">
+          <div class="panel-heading"><div><p class="eyebrow">REGISTROS Y ESTADOS</p><h3>Solicitudes de organizaciones</h3></div><span class="count">{{ organizations().length }}</span></div>
+          @for (org of organizations(); track org.id) {
+            <div class="admin-org-row">
+              <div><strong>{{ org.name }}</strong><small>{{ org.member_count }} integrantes · {{ org.application_count }} aplicaciones</small></div>
+              <span class="sandbox-label">{{ org.status }}</span>
+              @if (org.status === 'pending') {
+                <button class="button button-outline" type="button" (click)="decideOrganization(org, 'active')">Aprobar tras verificación manual</button>
+                <button class="button button-quiet" type="button" (click)="decideOrganization(org, 'rejected')">Rechazar</button>
+              } @else if (org.status === 'active') {
+                <button class="button button-quiet" type="button" (click)="decideOrganization(org, 'suspended')">Suspender</button>
+              } @else if (org.status === 'suspended') {
+                <button class="button button-outline" type="button" (click)="decideOrganization(org, 'active')">Reactivar</button>
+              }
+            </div>
+          } @empty {
+            <div class="empty-state"><strong>No hay organizaciones registradas</strong></div>
+          }
+        </article>
+      </section>
+    } @else {
+    <section class="dashboard">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">ESPACIO DE TRABAJO</p>
+          <h2>Panel de organización</h2>
+        </div>
+        <span class="approval-state" [class.approved]="organization()!.status === 'active'">
+          <span class="status-dot"></span>
+          {{ organization()!.status === 'active' ? 'Organización activa' : 'Pendiente de aprobación' }}
+        </span>
+      </div>
+
+      @if (usage(); as totals) {
+        <div class="metrics-grid">
+          <article class="metric-card"><span>Solicitudes hoy</span><strong>{{ totals.today }}</strong></article>
+          <article class="metric-card"><span>Últimos 7 días</span><strong>{{ totals.last_7_days }}</strong></article>
+          <article class="metric-card"><span>Este mes</span><strong>{{ totals.this_month }}</strong></article>
+          <article class="metric-card"><span>Errores registrados</span><strong>{{ totals.errors }}</strong></article>
+        </div>
+      }
+
+      <div class="dashboard-grid">
+        <article class="panel-card panel-wide">
+          <div class="panel-heading">
+            <div><p class="eyebrow">APLICACIONES</p><h3>Integraciones registradas</h3></div>
+            <span class="count">{{ applications().length }}</span>
+          </div>
+          @if (applications().length) {
+            <div class="application-list">
+              @for (application of applications(); track application.id) {
+                <div class="application-row">
+                  <div class="app-icon">↗</div>
+                  <div class="application-info"><strong>{{ application.name }}</strong><small>Creada {{ application.created_at | date:'mediumDate' }}</small></div>
+                  <span class="sandbox-label">SANDBOX</span>
+                  @if (canManage()) {
+                    <button class="button button-outline" type="button" (click)="createKey(application)" [disabled]="organization()!.status !== 'active'">Generar API key</button>
+                  }
+                </div>
+                @for (key of apiKeys()[application.id] ?? []; track key.id) {
+                  <div class="key-row">
+                    <code>{{ key.public_id }}</code>
+                    <span>{{ key.revoked_at ? 'Revocada' : (key.expires_at ? 'Con expiración' : 'Activa') }}</span>
+                    @if (canManage() && !key.revoked_at) {
+                      <button class="text-button" type="button" (click)="revokeKey(application, key)">Revocar</button>
+                    }
+                  </div>
+                }
+              }
+            </div>
+          } @else {
+            <div class="empty-state"><span class="empty-icon">⌘</span><strong>Aún no hay aplicaciones</strong><p>Registra una aplicación Sandbox para comenzar.</p></div>
+          }
+          @if (createdKey()) {
+            <div class="key-reveal">
+              <strong>Tu API key de Sandbox (visible una sola vez):</strong>
+              <code>{{ createdKey() }}</code>
+              <button class="text-button" type="button" (click)="hideKey()">Ocultar clave</button>
+            </div>
+          }
+        </article>
+
+        <article class="panel-card create-card">
+          <p class="eyebrow">NUEVA INTEGRACIÓN</p>
+          <h3>Registra una aplicación</h3>
+          <p>Comienza en Sandbox. El acceso de producción permanece deshabilitado.</p>
+          <form (ngSubmit)="createApplication()">
+            <label for="application-name">Nombre de la aplicación</label>
+            <input id="application-name" name="applicationName" [(ngModel)]="applicationName" required minlength="2" maxlength="120" [disabled]="organization()!.status !== 'active' || !canManage()" />
+            <button class="button button-primary full-width" type="submit" [disabled]="organization()!.status !== 'active' || !canManage()">Crear aplicación Sandbox</button>
+          </form>
+        </article>
+
+        <article class="panel-card">
+          <p class="eyebrow">TU CUENTA</p>
+          <h3>{{ organization()!.name }}</h3>
+          <p>{{ organization()!.email }}</p>
+          <span class="role-label">{{ organization()!.role }}</span>
+        </article>
+
+        <article class="panel-card docs-card">
+          <p class="eyebrow">GUÍAS Y REFERENCIAS</p>
+          <h3>Documentación para desarrolladores</h3>
+          <p>Explora endpoints, solicitudes, respuestas y esquemas OpenAPI.</p>
+          <a class="button button-outline" href="https://api.bancokike.com/docs" target="_blank" rel="noopener noreferrer">Abrir Swagger UI ↗</a>
+        </article>
+      </div>
+    </section>
+    }
+  }
+
+  <footer class="footer">
+    <span>© Banco Kike · Plataforma independiente para desarrolladores</span>
+    <span>Integraciones financieras sujetas a autorización</span>
+  </footer>
+</main>

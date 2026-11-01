@@ -1,0 +1,85 @@
+# BANCO KIKE API PLATFORM
+
+Monorepo independiente para el portal de desarrolladores y la API pública propuesta (`developers.bancokike.com` y `api.bancokike.com`). No modifica ni duplica el backend bancario.
+
+## Estado actual
+
+Esta primera entrega proporciona una base ejecutable, enfocada en **Sandbox**:
+
+- Portal Angular para registro, inicio/cierre de sesión, aplicaciones Sandbox y generación de API keys.
+- API Express con sesiones en cookie `HttpOnly`, hash de contraseñas mediante scrypt, validación Zod, rate limit, CORS limitado y Swagger UI.
+- PostgreSQL/Neon con organizaciones, usuarios, aplicaciones, claves, permisos, dominios, webhooks, métricas y auditoría.
+- Aislamiento por organización con PostgreSQL Row-Level Security (RLS).
+- Administración inicial para consultar organizaciones y aprobar, rechazar o suspender registros.
+- Render Blueprint para la API y configuración Firebase Hosting para el portal.
+
+**No está habilitado para dinero real.** No se implementan autenticación de clientes bancarios, saldo, transferencias, depósitos, OAuth/PKCE, entrega/reintentos de webhooks, verificación de identidad, administración de dominios permitidos, ni widget de usuario final. La API de integración solo ofrece un `ping` de Sandbox. Esas capacidades requieren contratos de integración, autorización y controles del backend bancario central; no deben simularse con credenciales de aplicación.
+
+## Requisitos
+
+- Node.js 24+
+- PostgreSQL administrado por Neon
+- Firebase CLI para Hosting y cuenta Render para el backend
+
+## Desarrollo local
+
+1. Crear una base de datos en Neon y ejecutar `api/migrations/001_initial.sql` desde una conexión administrativa.
+2. Copiar `api/.env.example` a `api/.env` y configurar `DATABASE_URL`, `SESSION_SECRET` (mínimo 32 caracteres), `PORTAL_ORIGIN`, `API_ORIGIN` y `NODE_ENV`. No subir `.env`.
+3. Instalar las dependencias del backend y del portal:
+
+   ```sh
+   npm install
+   npm --prefix portal install
+   ```
+
+4. Arrancar la API y el portal en terminales separadas:
+
+   ```sh
+   npm run api:dev
+   ```
+
+   ```sh
+   npm --prefix portal start
+   ```
+
+5. Abrir el portal en `http://localhost:4200` y la documentación en `http://localhost:3000/docs`.
+
+El primer registro queda en estado pendiente. Para habilitar la administración de la plataforma, un operador debe verificar la identidad del administrador y asignar `platform_admin` desde un procedimiento administrativo seguro en Neon. No se asigna ese rol durante el registro público. Con la migración RLS aplicada, el operador puede usar una sesión controlada como esta:
+
+```sql
+BEGIN;
+SET LOCAL app.platform_admin = 'true';
+UPDATE users
+SET organization_id = NULL, role = 'platform_admin'
+WHERE email = 'admin-verificado@bancokike.com';
+COMMIT;
+```
+
+El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal independiente y con un usuario de base de datos autorizado.
+
+## Despliegue
+
+- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL`, una clave de sesión secreta y `PORTAL_ORIGIN=https://developers.bancokike.com`. Aplicar migraciones con un procedimiento controlado antes de publicar.
+- **Portal:** ejecutar `npm --prefix portal run build` y desplegar `portal/dist/portal/browser` en un sitio Firebase Hosting dedicado. Asociar el dominio solo después de configurar TLS y CORS.
+- **DNS:** configurar los dominios/subdominios en sus proveedores. Los certificados TLS y la verificación de dominios son prerrequisitos operativos fuera del código.
+
+## Seguridad / operación
+
+- Las API keys se generan con aleatoriedad criptográfica, se almacena solo SHA-256 del valor completo y se entregan una sola vez. No ponerlas en JavaScript público, URL, repositorios ni logs.
+- Una API key identifica la aplicación; no autentica a personas. Las operaciones bancarias deben usar el flujo de identidad del banco.
+- Las API keys son credenciales de servidor. No invocar `POST /v1/integrations/ping` desde JavaScript de terceros ni incluir una clave en el widget.
+- Las cookies de sesión son `HttpOnly`, `SameSite=Strict`, `Secure` en producción y se limitan a ocho horas. Los cambios requieren JSON y validación del origen.
+- El backend no registra contraseñas, tokens, API keys ni NIP. Los registros de uso no incluyen IP; el campo de origen se limita a la solicitud de prueba.
+- Aplicar la migración con el rol de Neon apropiado. El runtime debe usar un rol no superusuario y no propietario de las tablas; de lo contrario, PostgreSQL puede omitir RLS. El usuario de aplicación necesita `SELECT/INSERT/UPDATE` explícitos según las operaciones utilizadas.
+- La cuenta inicial de plataforma debe ser creada y verificada por el operador. Los administradores deben usar MFA/SSO antes de producción.
+
+## Endpoints disponibles
+
+- `POST /v1/organizations` — solicitar registro (pendiente).
+- `POST /v1/auth/login`, `POST /v1/auth/logout`, `GET /v1/me` — sesión del portal.
+- `GET /v1/applications`, `POST /v1/applications` — aplicaciones de la organización.
+- `GET /v1/applications/{id}/keys`, `POST /v1/applications/{id}/keys`, `DELETE /v1/applications/{applicationId}/keys/{keyId}` — administrar claves.
+- `POST /v1/integrations/ping` — validar identificación de aplicación en Sandbox.
+- `GET /v1/admin/organizations`, `POST /v1/admin/organizations/{id}/decision` — administración de registros.
+- `GET /docs`, `GET /openapi.json` — documentación interactiva y especificación.
+- `GET /health/live`, `GET /health/ready` — comprobaciones operativas.
