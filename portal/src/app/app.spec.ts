@@ -29,6 +29,24 @@ describe('App', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Conecta tus servicios');
   });
 
+  it('should show a database migration message when the session profile cannot be loaded', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController)
+      .expectOne((request) => request.url.endsWith('/v1/me'))
+      .flush(
+        { error: 'database_schema_outdated', requiredMigration: '002_admin_api_access.sql' },
+        { status: 503, statusText: 'Service Unavailable' },
+      );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent)
+      .toContain('El servicio requiere actualizar la base de datos');
+    expect((fixture.nativeElement as HTMLElement).textContent)
+      .toContain('002_admin_api_access.sql');
+  });
+
   it('should show pending organization requests only after platform admin authentication', async () => {
     const fixture = TestBed.createComponent(App);
     const http = TestBed.inject(HttpTestingController);

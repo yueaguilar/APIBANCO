@@ -93,7 +93,7 @@ const openApi = {
   servers: [{ url: env.API_ORIGIN }],
   paths: {
     '/health/live': { get: { summary: 'Estado del proceso', responses: { '200': { description: 'Proceso activo' } } } },
-    '/health/ready': { get: { summary: 'Disponibilidad de la base de datos', responses: { '200': { description: 'Listo' }, '503': { description: 'No disponible' } } } },
+    '/health/ready': { get: { summary: 'Disponibilidad de la base de datos y esquema requerido', responses: { '200': { description: 'Listo' }, '503': { description: 'Base de datos no disponible o requiere migraciones' } } } },
     '/v1/organizations': {
       post: {
         summary: 'Registrar organización (estado pendiente)',
@@ -308,10 +308,29 @@ app.get('/openapi.json', (_req, res) => res.json(openApi));
 app.get('/health/live', (_req, res) => res.json({ status: 'ok' }));
 app.get('/health/ready', async (_req, res) => {
   try {
-    await pool.query('SELECT 1');
+    const result = await pool.query<{ schema_ready: boolean }>(
+      `SELECT
+         EXISTS (
+           SELECT 1 FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'organizations' AND column_name = 'api_enabled'
+         )
+         AND EXISTS (
+           SELECT 1 FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'applications' AND column_name = 'api_enabled'
+         ) AS schema_ready`,
+    );
+    if (!result.rows[0]?.schema_ready) {
+      return res.status(503).json({
+        status: 'unavailable',
+        error: 'database_schema_outdated',
+        requiredMigration: '002_admin_api_access.sql',
+      });
+    }
     res.json({ status: 'ready' });
   } catch {
-    res.status(503).json({ status: 'unavailable' });
+    res.status(503).json({ status: 'unavailable', error: 'database_unavailable' });
   }
 });
 
@@ -911,6 +930,16 @@ const errorHandler: express.ErrorRequestHandler = (error, _req, res, _next) => {
   if (error instanceof z.ZodError) {
     const details = error.issues.map(({ code, path, message }) => ({ code, path, message }));
     return res.status(400).json({ error: 'validation_error', details });
+  }
+  if ((error as { code?: string }).code === '42703') {
+    console.error(JSON.stringify({
+      event: 'DATABASE_SCHEMA_OUTDATED',
+      ...postgresErrorFields(error),
+    }));
+    return res.status(503).json({
+      error: 'database_schema_outdated',
+      requiredMigration: '002_admin_api_access.sql',
+    });
   }
   const status = Number((error as { status?: number }).status) || 500;
   if (status >= 500) {

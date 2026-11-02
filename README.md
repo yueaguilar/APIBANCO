@@ -59,7 +59,7 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 
 ## Despliegue
 
-- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL` y aplicar migraciones con un procedimiento controlado antes de publicar. Render ofrece una URL `*.onrender.com` sin configurar un dominio propio.
+- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL` y aplicar las migraciones, especialmente `002_admin_api_access.sql`, antes de publicar una versión que dependa de `api_enabled`. `/health/ready` comprueba ahora que las columnas requeridas existen, por lo que Render no enviará tráfico a una instancia con un esquema incompatible. Render ofrece una URL `*.onrender.com` sin configurar un dominio propio.
 - **Portal:** ejecutar `npm --prefix portal run build` y desplegar `portal/dist/portal/browser` en Firebase Hosting. Firebase proporciona automáticamente una URL `*.web.app`; no hace falta asociar un dominio propio.
 
 ## Seguridad / operación

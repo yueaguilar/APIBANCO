@@ -475,6 +475,7 @@ export class App {
       insufficient_permissions: 'Tu cuenta no tiene permisos para esta acción.',
       email_already_registered: 'Ese correo ya tiene una cuenta.',
       api_access_disabled: 'El administrador todavía no ha habilitado el acceso API para esta organización o aplicación.',
+      database_schema_outdated: 'El servicio requiere actualizar la base de datos. El administrador debe aplicar la migración 002_admin_api_access.sql y volver a intentar.',
     };
     this.error.set((code ? messages[code] : undefined) ?? 'No se pudo completar la solicitud. Verifica la conexión y vuelve a intentarlo.');
   }
