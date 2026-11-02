@@ -12,7 +12,7 @@ services:
       - key: PORTAL_ORIGIN
         value: https://apibanco-e3112.web.app
       - key: API_ORIGIN
-        value: https://banco-kike-api.onrender.com
+        value: https://apibanco-4ytc.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: SESSION_SECRET

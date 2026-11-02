@@ -43,7 +43,7 @@ interface UsageSummary {
   errors: number;
 }
 
-const apiBase = location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://banco-kike-api.onrender.com';
+const apiBase = location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://apibanco-4ytc.onrender.com';
 
 @Component({
   imports: [CommonModule, FormsModule],

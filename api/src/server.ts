@@ -21,8 +21,15 @@ const env = z.object({
 }).parse(process.env);
 const configuredPortalOrigin = env.PORTAL_ORIGIN
   ?? (env.NODE_ENV === 'production' ? 'https://apibanco-e3112.web.app' : 'http://localhost:4200');
+const firebasePortalOrigin = 'https://apibanco-e3112.web.app';
+const firebasePortalHostname = new URL(firebasePortalOrigin).hostname;
+const pairedFirebaseAppOrigin = firebasePortalHostname.endsWith('.web.app')
+  ? `https://${firebasePortalHostname.replace(/\.web\.app$/, '.firebaseapp.com')}`
+  : undefined;
 const allowedBrowserOrigins = new Set([
   new URL(configuredPortalOrigin).origin,
+  firebasePortalOrigin,
+  ...(pairedFirebaseAppOrigin ? [pairedFirebaseAppOrigin] : []),
   new URL(env.API_ORIGIN).origin,
 ]);
 const corsOptions: cors.CorsOptions = {
