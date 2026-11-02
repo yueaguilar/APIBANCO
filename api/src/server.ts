@@ -638,7 +638,23 @@ const errorHandler: express.ErrorRequestHandler = (error, _req, res, _next) => {
     return res.status(400).json({ error: 'validation_error', details });
   }
   const status = Number((error as { status?: number }).status) || 500;
-  if (status >= 500) console.error('Request failed', error instanceof Error ? error.name : 'UnknownError');
+  if (status >= 500) {
+  const dbError = error as {
+    code?: string;
+    constraint?: string;
+    table?: string;
+    detail?: string;
+  };
+
+  console.error('API_INTERNAL_ERROR', {
+    name: error instanceof Error ? error.name : 'UnknownError',
+    message: error instanceof Error ? error.message : 'Unknown error',
+    code: dbError.code,
+    constraint: dbError.constraint,
+    table: dbError.table,
+    detail: dbError.detail
+  });
+}
   res.status(status).json({ error: status >= 500 ? 'internal_error' : (error as Error).message });
 };
 app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
