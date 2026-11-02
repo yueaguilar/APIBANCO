@@ -86,7 +86,7 @@
             <div>
               <p class="eyebrow">REVISIÓN Y ACCESO</p>
               <h3>Solicitudes de organizaciones</h3>
-              <p>Aprueba solo después de completar la verificación correspondiente.</p>
+              <p>Aprueba solo después de completar la verificación correspondiente. Para usar Sandbox, la organización y la aplicación deben tener acceso API habilitado.</p>
             </div>
             <button class="button button-outline" type="button" (click)="refreshAdminData()" [disabled]="adminOrganizationsLoading() || adminUsageLoading()">
               {{ adminOrganizationsLoading() || adminUsageLoading() ? 'Actualizando…' : 'Actualizar' }}
@@ -114,7 +114,7 @@
               <div class="admin-org-row">
                 <div class="admin-org-details">
                   <strong>{{ org.name }}</strong>
-                  <small>Registrada {{ org.created_at | date:'mediumDate' }} · {{ org.member_count }} integrantes · {{ org.application_count }} aplicaciones</small>
+                  <small>Registrada {{ org.created_at | date:'mediumDate' }} · {{ org.member_count }} integrantes · {{ org.application_count }} aplicaciones · API {{ org.api_enabled ? 'habilitada' : 'deshabilitada' }}</small>
                 </div>
                 <span class="organization-status" [class]="'organization-status status-' + org.status">{{ org.status === 'pending' ? 'Pendiente' : (org.status === 'active' ? 'Activa' : (org.status === 'rejected' ? 'Rechazada' : 'Suspendida')) }}</span>
                 @if (org.status === 'pending') {
@@ -127,7 +127,59 @@
                 } @else if (org.status === 'suspended') {
                   <button class="button button-outline" type="button" (click)="decideOrganization(org, 'active')">Reactivar</button>
                 }
+                <button class="button button-outline" type="button" (click)="toggleOrganizationApiAccess(org)" [disabled]="adminAction() !== null">
+                  {{ adminAction() === 'organization:' + org.id ? 'Guardando…' : (org.api_enabled ? 'Deshabilitar API' : 'Habilitar API') }}
+                </button>
+                <button class="button button-quiet" type="button" (click)="toggleAdminApplications(org)" [disabled]="adminApplicationsLoading() !== null">
+                  {{ expandedAdminOrganizationId() === org.id ? 'Ocultar aplicaciones' : 'Aplicaciones y claves' }}
+                </button>
               </div>
+              @if (expandedAdminOrganizationId() === org.id) {
+                <div class="panel-card admin-table">
+                  <h3>Aplicaciones de {{ org.name }}</h3>
+                  @if (adminApplicationsLoading() === org.id) {
+                    <p role="status">Cargando aplicaciones y claves…</p>
+                  } @else if (adminApplicationsError() === org.id) {
+                    <p role="alert">No se pudieron cargar las aplicaciones. Usa “Actualizar” para reintentar.</p>
+                  } @else {
+                    @for (application of adminApplications()[org.id] ?? []; track application.id) {
+                      <div class="application-row">
+                        <div class="application-info">
+                          <strong>{{ application.name }}</strong>
+                          <small>{{ application.environment }} · API {{ application.api_enabled ? 'habilitada' : 'deshabilitada' }} · Creada {{ application.created_at | date:'mediumDate' }}</small>
+                        </div>
+                        <button class="button button-outline" type="button" (click)="toggleApplicationApiAccess(org.id, application)" [disabled]="adminAction() !== null">
+                          {{ adminAction() === 'application:' + application.id ? 'Guardando…' : (application.api_enabled ? 'Deshabilitar API' : 'Habilitar API') }}
+                        </button>
+                        @for (key of application.keys; track key.id) {
+                          <div class="key-row">
+                            <code>{{ key.public_id }}</code>
+                          @if (key.revoked_at) {
+                            <span>Revocada</span>
+                          } @else if (key.expires_at) {
+                            <span>Expira {{ key.expires_at | date:'short' }}</span>
+                          } @else {
+                            <span>Activa · sin expiración</span>
+                          }
+                            @if (key.last_used_at) {
+                              <small>Último uso {{ key.last_used_at | date:'short' }}</small>
+                            }
+                            @if (!key.revoked_at) {
+                              <button class="text-button" type="button" (click)="revokeAdminKey(org.id, application, key)" [disabled]="adminAction() !== null">
+                                {{ adminAction() === 'key:' + key.id ? 'Revocando…' : 'Revocar clave' }}
+                              </button>
+                            }
+                          </div>
+                        } @empty {
+                          <small>Esta aplicación aún no tiene API keys.</small>
+                        }
+                      </div>
+                    } @empty {
+                      <p>Esta organización aún no tiene aplicaciones.</p>
+                    }
+                  }
+                </div>
+              }
             } @empty {
               <div class="empty-state">
                 <strong>{{ adminOrganizationsError() ? 'No se pudo consultar la lista' : (organizationFilter() === 'pending' ? 'No hay solicitudes pendientes' : 'No hay organizaciones en esta categoría') }}</strong>
@@ -227,7 +279,7 @@
               @for (application of applications(); track application.id) {
                 <div class="application-row">
                   <div class="app-icon">↗</div>
-                  <div class="application-info"><strong>{{ application.name }}</strong><small>Creada {{ application.created_at | date:'mediumDate' }}</small></div>
+                  <div class="application-info"><strong>{{ application.name }}</strong><small>Creada {{ application.created_at | date:'mediumDate' }} · API {{ application.api_enabled && organization()!.api_enabled ? 'habilitada' : 'pendiente de autorización' }}</small></div>
                   <span class="sandbox-label">SANDBOX</span>
                   @if (canManage()) {
                     <button class="button button-outline" type="button" (click)="createKey(application)" [disabled]="organization()!.status !== 'active'">Generar API key</button>

@@ -137,6 +137,10 @@ const openApi = {
     },
     '/v1/applications/{applicationId}/keys/{keyId}': { delete: { summary: 'Revocar API key', security: [{ sessionCookie: [] }], parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }, { name: 'keyId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], responses: { '204': { description: 'Clave revocada' } } } },
     '/v1/admin/organizations': { get: { summary: 'Listar organizaciones (solo administrador de plataforma)', security: [{ sessionCookie: [] }], responses: { '200': { description: 'Organizaciones' } } } },
+    '/v1/admin/organizations/{id}/applications': { get: { summary: 'Listar aplicaciones y metadatos de claves de una organización', security: [{ sessionCookie: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], responses: { '200': { description: 'Aplicaciones, acceso API y metadatos de claves; nunca incluye secretos' } } } },
+    '/v1/admin/organizations/{id}/api-access': { post: { summary: 'Habilitar o deshabilitar el acceso API de una organización', security: [{ sessionCookie: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiAccessDecision' } } } }, responses: { '200': { description: 'Acceso actualizado' } } } },
+    '/v1/admin/applications/{id}/api-access': { post: { summary: 'Habilitar o deshabilitar el acceso API de una aplicación', security: [{ sessionCookie: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiAccessDecision' } } } }, responses: { '200': { description: 'Acceso actualizado' } } } },
+    '/v1/admin/organizations/{organizationId}/applications/{applicationId}/keys/{keyId}': { delete: { summary: 'Revocar API key de una organización (solo metadatos)', security: [{ sessionCookie: [] }], parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }, { name: 'applicationId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }, { name: 'keyId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], responses: { '204': { description: 'Clave revocada' }, '404': { description: 'Clave no encontrada o ya revocada' } } } },
     '/v1/admin/organizations/{id}/decision': {
       post: {
         summary: 'Aprobar, rechazar o suspender organización',
@@ -182,6 +186,11 @@ const openApi = {
         type: 'object',
         required: ['status'],
         properties: { status: { type: 'string', enum: ['active', 'rejected', 'suspended'] } },
+      },
+      ApiAccessDecision: {
+        type: 'object',
+        required: ['enabled'],
+        properties: { enabled: { type: 'boolean' } },
       },
     },
   },
@@ -574,7 +583,7 @@ app.get('/v1/me', requireSession, async (req, res, next) => {
     if (!principal) return res.status(401).json({ error: 'authentication_required' });
     if (!principal.organizationId) return res.json({ role: principal.role });
     const result = await withTenant(principal.organizationId, (client) => client.query(
-      `SELECT o.id, o.name, o.status, u.email, u.role
+      `SELECT o.id, o.name, o.status, o.api_enabled, u.email, u.role
        FROM organizations o JOIN users u ON u.organization_id = o.id
        WHERE o.id = $1 AND u.id = $2`,
       [principal.organizationId, principal.userId],
@@ -605,7 +614,7 @@ app.get('/v1/applications', requireSession, async (req, res, next) => {
     const orgId = req.principal?.organizationId;
     if (!orgId) return res.status(403).json({ error: 'organization_required' });
     const result = await withTenant(orgId, (client) => client.query(
-      `SELECT id, name, environment, created_at FROM applications
+      `SELECT id, name, environment, api_enabled, created_at FROM applications
        WHERE organization_id = $1 ORDER BY created_at DESC`,
       [orgId],
     ));
@@ -638,7 +647,7 @@ app.post('/v1/applications', requireSession, requireOrganizationAdmin, async (re
       const created = await client.query(
         `INSERT INTO applications (organization_id, name, environment)
          SELECT $1, $2, 'sandbox' FROM organizations WHERE id = $1 AND status = 'active'
-         RETURNING id, name, environment, created_at`,
+         RETURNING id, name, environment, api_enabled, created_at`,
         [principal.organizationId, input.name],
       );
       if (!created.rowCount) throw Object.assign(new Error('organization_not_approved'), { status: 403 });
@@ -697,7 +706,7 @@ app.delete('/v1/applications/:applicationId/keys/:keyId', requireSession, requir
 app.get('/v1/admin/organizations', requireSession, requirePlatformAdmin, async (_req, res, next) => {
   try {
     const result = await withPlatform((client) => client.query(
-      `SELECT o.id, o.name, o.status, o.created_at, count(DISTINCT u.id)::int AS member_count,
+      `SELECT o.id, o.name, o.status, o.api_enabled, o.created_at, count(DISTINCT u.id)::int AS member_count,
               count(DISTINCT a.id)::int AS application_count
        FROM organizations o
        LEFT JOIN users u ON u.organization_id = o.id
@@ -705,6 +714,85 @@ app.get('/v1/admin/organizations', requireSession, requirePlatformAdmin, async (
        GROUP BY o.id ORDER BY o.created_at DESC`,
     ));
     res.json({ organizations: result.rows });
+  } catch (error) { next(error); }
+});
+
+app.get('/v1/admin/organizations/:id/applications', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const organizationId = z.string().uuid().parse(req.params.id);
+    const result = await withPlatform(async (client) => {
+      const applications = await client.query(
+        `SELECT id, name, environment, api_enabled, created_at
+         FROM applications WHERE organization_id = $1 ORDER BY created_at DESC`,
+        [organizationId],
+      );
+      const keys = await client.query(
+        `SELECT id, application_id, public_id, created_at, expires_at, revoked_at, last_used_at
+         FROM api_keys WHERE organization_id = $1 ORDER BY created_at DESC`,
+        [organizationId],
+      );
+      return applications.rows.map((application) => ({
+        ...application,
+        keys: keys.rows.filter((key) => key.application_id === application.id),
+      }));
+    });
+    res.json({ applications: result });
+  } catch (error) { next(error); }
+});
+
+app.post('/v1/admin/organizations/:id/api-access', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const organizationId = z.string().uuid().parse(req.params.id);
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    const principal = req.principal!;
+    const organization = await withPlatform(async (client) => {
+      const updated = await client.query(
+        `UPDATE organizations SET api_enabled = $1, updated_at = now()
+         WHERE id = $2 RETURNING id, api_enabled`,
+        [enabled, organizationId],
+      );
+      if (!updated.rowCount) throw Object.assign(new Error('organization_not_found'), { status: 404 });
+      await audit(client, organizationId, principal.userId, `organization.api_access_${enabled ? 'enabled' : 'disabled'}`, { enabled });
+      return updated.rows[0];
+    });
+    res.json(organization);
+  } catch (error) { next(error); }
+});
+
+app.post('/v1/admin/applications/:id/api-access', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const applicationId = z.string().uuid().parse(req.params.id);
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    const principal = req.principal!;
+    const application = await withPlatform(async (client) => {
+      const updated = await client.query(
+        `UPDATE applications SET api_enabled = $1
+         WHERE id = $2 RETURNING id, organization_id, api_enabled`,
+        [enabled, applicationId],
+      );
+      if (!updated.rowCount) throw Object.assign(new Error('application_not_found'), { status: 404 });
+      await audit(client, updated.rows[0].organization_id, principal.userId, `application.api_access_${enabled ? 'enabled' : 'disabled'}`, { applicationId, enabled });
+      return updated.rows[0];
+    });
+    res.json(application);
+  } catch (error) { next(error); }
+});
+
+app.delete('/v1/admin/organizations/:organizationId/applications/:applicationId/keys/:keyId', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const organizationId = z.string().uuid().parse(req.params.organizationId);
+    const principal = req.principal!;
+    await withPlatform(async (client) => {
+      const revoked = await client.query(
+        `UPDATE api_keys SET revoked_at = now()
+         WHERE id = $1 AND application_id = $2 AND organization_id = $3 AND revoked_at IS NULL
+         RETURNING id`,
+        [req.params.keyId, req.params.applicationId, organizationId],
+      );
+      if (!revoked.rowCount) throw Object.assign(new Error('key_not_found'), { status: 404 });
+      await audit(client, organizationId, principal.userId, 'api_key.revoked_by_platform_admin', { keyId: revoked.rows[0].id });
+    });
+    res.status(204).end();
   } catch (error) { next(error); }
 });
 
@@ -759,21 +847,53 @@ app.post('/v1/integrations/ping', async (req, res, next) => {
     const match = /^Bearer (bk_sandbox_[a-f0-9]{24}\.[A-Za-z0-9_-]{43})$/.exec(authorization);
     if (!match) return res.status(401).json({ error: 'invalid_api_key' });
     const digest = createHash('sha256').update(match[1]).digest();
-    const result = await pool.connect().then(async (client) => {
+    const outcome = await pool.connect().then(async (client) => {
       try {
         await client.query('BEGIN');
         await client.query(`SELECT set_config('app.key_auth', 'true', true)`);
         const key = await client.query(
-          `UPDATE api_keys k SET last_used_at = now()
-           FROM organizations o
+          `SELECT k.id, k.public_id, k.organization_id, k.application_id,
+                  o.status AS organization_status, o.api_enabled AS organization_api_enabled
+           FROM api_keys k JOIN organizations o ON o.id = k.organization_id
            WHERE k.secret_hash = $1 AND k.revoked_at IS NULL
-             AND (k.expires_at IS NULL OR k.expires_at > now())
-             AND k.organization_id = o.id AND o.status = 'active'
-           RETURNING k.public_id, k.organization_id, k.application_id`,
+             AND (k.expires_at IS NULL OR k.expires_at > now())`,
           [digest],
         );
+        if (!key.rowCount) {
+          await client.query('COMMIT');
+          return { key: null, error: 'invalid_api_key' as const };
+        }
+        const requestKey = key.rows[0];
+        await client.query(`SELECT set_config('app.organization_id', $1, true)`, [requestKey.organization_id]);
+        const application = await client.query(
+          `SELECT api_enabled FROM applications WHERE id = $1 AND organization_id = $2`,
+          [requestKey.application_id, requestKey.organization_id],
+        );
+        if (!application.rowCount) throw new Error('api_key_application_not_found');
+        await client.query(`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, [requestKey.id]);
+        const error = requestKey.organization_status !== 'active'
+          ? 'organization_not_active' as const
+          : (!requestKey.organization_api_enabled || !application.rows[0].api_enabled
+            ? 'api_access_disabled' as const
+            : null);
+        const statusCode = error ? 403 : 200;
+        await client.query(
+          `INSERT INTO api_request_logs
+           (organization_id, application_id, endpoint, method, status_code, duration_ms, origin_domain)
+           VALUES ($1, $2, '/v1/integrations/ping', 'POST', $3, $4, $5)`,
+          [
+            requestKey.organization_id,
+            requestKey.application_id,
+            statusCode,
+            Date.now() - requestStartedAt,
+            (() => {
+              try { return req.get('origin') ? new URL(req.get('origin')!).hostname : null; }
+              catch { return null; }
+            })(),
+          ],
+        );
         await client.query('COMMIT');
-        return key;
+        return { key: requestKey, error };
       } catch (error) {
         await client.query('ROLLBACK');
         throw error;
@@ -781,21 +901,8 @@ app.post('/v1/integrations/ping', async (req, res, next) => {
         client.release();
       }
     });
-    if (!result.rowCount) return res.status(401).json({ error: 'invalid_api_key' });
-    await withTenant(result.rows[0].organization_id, (client) => client.query(
-      `INSERT INTO api_request_logs
-       (organization_id, application_id, endpoint, method, status_code, duration_ms, origin_domain)
-       VALUES ($1, $2, '/v1/integrations/ping', 'POST', 200, $3, $4)`,
-      [
-        result.rows[0].organization_id,
-        result.rows[0].application_id,
-        Date.now() - requestStartedAt,
-        (() => {
-          try { return req.get('origin') ? new URL(req.get('origin')!).hostname : null; }
-          catch { return null; }
-        })(),
-      ],
-    ));
+    if (!outcome.key) return res.status(401).json({ error: outcome.error });
+    if (outcome.error) return res.status(403).json({ error: outcome.error });
     res.json({ authenticated: true, environment: 'sandbox', message: 'Identificación de aplicación válida. Sin acceso a operaciones bancarias.' });
   } catch (error) { next(error); }
 });

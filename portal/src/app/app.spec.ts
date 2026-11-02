@@ -43,6 +43,7 @@ describe('App', () => {
             id: 'pending-org',
             name: 'Pendiente',
             status: 'pending',
+            api_enabled: false,
             created_at: '2026-11-01T00:00:00.000Z',
             member_count: 1,
             application_count: 0,
@@ -51,6 +52,7 @@ describe('App', () => {
             id: 'active-org',
             name: 'Activa',
             status: 'active',
+            api_enabled: true,
             created_at: '2026-10-01T00:00:00.000Z',
             member_count: 2,
             application_count: 1,
@@ -92,6 +94,7 @@ describe('App', () => {
           id: 'new-org',
           name: 'Nueva organización',
           status: 'pending',
+          api_enabled: false,
           created_at: '2026-11-02T00:00:00.000Z',
           member_count: 1,
           application_count: 0,
@@ -128,6 +131,79 @@ describe('App', () => {
       .toContain('Portal comercio');
     expect(compiled.querySelector('.admin-requests-table')?.textContent)
       .toContain('/v1/integrations/ping');
+    http.verify();
+  });
+
+  it('persists organization and application API access changes and reflects key revocation', async () => {
+    const fixture = TestBed.createComponent(App);
+    const http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+
+    http.expectOne((request) => request.url.endsWith('/v1/me'))
+      .flush({ role: 'platform_admin' });
+    http.expectOne((request) => request.url.endsWith('/v1/admin/organizations'))
+      .flush({
+        organizations: [{
+          id: 'org-id',
+          name: 'Comercio',
+          status: 'active',
+          api_enabled: false,
+          created_at: '2026-11-01T00:00:00.000Z',
+          member_count: 1,
+          application_count: 1,
+        }],
+      });
+    http.expectOne((request) => request.url.endsWith('/v1/admin/usage/summary'))
+      .flush({ today: 0, last_7_days: 0, this_month: 0, errors: 0, requests: [] });
+    fixture.detectChanges();
+
+    const buttonByText = (text: string) => Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
+    ).find((button) => button.textContent?.trim() === text) as HTMLButtonElement;
+
+    buttonByText('Todas').click();
+    fixture.detectChanges();
+    buttonByText('Habilitar API').click();
+    const organizationAccess = http.expectOne((request) => request.url.endsWith('/v1/admin/organizations/org-id/api-access'));
+    expect(organizationAccess.request.body).toEqual({ enabled: true });
+    organizationAccess.flush({ id: 'org-id', api_enabled: true });
+    fixture.detectChanges();
+    expect(buttonByText('Deshabilitar API')).toBeTruthy();
+
+    buttonByText('Aplicaciones y claves').click();
+    http.expectOne((request) => request.url.endsWith('/v1/admin/organizations/org-id/applications'))
+      .flush({
+        applications: [{
+          id: 'app-id',
+          name: 'Portal comercio',
+          environment: 'sandbox',
+          api_enabled: false,
+          created_at: '2026-11-01T00:00:00.000Z',
+          keys: [{
+            id: 'key-id',
+            public_id: 'bk_public',
+            created_at: '2026-11-01T00:00:00.000Z',
+            expires_at: null,
+            revoked_at: null,
+            last_used_at: null,
+          }],
+        }],
+      });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('bk_public');
+
+    buttonByText('Habilitar API').click();
+    const applicationAccess = http.expectOne((request) => request.url.endsWith('/v1/admin/applications/app-id/api-access'));
+    expect(applicationAccess.request.body).toEqual({ enabled: true });
+    applicationAccess.flush({ id: 'app-id', api_enabled: true });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('API habilitada');
+
+    buttonByText('Revocar clave').click();
+    http.expectOne((request) => request.url.endsWith('/v1/admin/organizations/org-id/applications/app-id/keys/key-id'))
+      .flush(null, { status: 204, statusText: 'No Content' });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Revocada');
     http.verify();
   });
 });

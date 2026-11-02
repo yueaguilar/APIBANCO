@@ -23,7 +23,7 @@ Esta primera entrega proporciona una base ejecutable, enfocada en **Sandbox**:
 
 ## Desarrollo local
 
-1. Crear una base de datos en Neon y ejecutar `api/migrations/001_initial.sql` desde una conexión administrativa.
+1. Crear una base de datos en Neon y ejecutar, en orden, `api/migrations/001_initial.sql` y `api/migrations/002_admin_api_access.sql` desde una conexión administrativa. La segunda migración agrega permisos explícitos de API por organización y aplicación; a los registros existentes les conserva el acceso que ya tenían.
 2. Copiar `api/.env.example` a `api/.env` y configurar `DATABASE_URL`, `SESSION_SECRET` (mínimo 32 caracteres), `PORTAL_ORIGIN`, `API_ORIGIN` y `NODE_ENV`. No subir `.env`.
 3. Instalar las dependencias del backend y del portal:
 
@@ -66,6 +66,7 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 
 - Las API keys se generan con aleatoriedad criptográfica, se almacena solo SHA-256 del valor completo y se entregan una sola vez. No ponerlas en JavaScript público, URL, repositorios ni logs.
 - Una API key identifica la aplicación; no autentica a personas. Las operaciones bancarias deben usar el flujo de identidad del banco.
+- El acceso de Sandbox requiere que la organización esté activa y que el administrador haya habilitado el acceso API tanto para la organización como para la aplicación. Las claves creadas antes de aplicar la migración conservan el acceso de su organización activa y aplicación existente.
 - Las API keys son credenciales de servidor. No invocar `POST /v1/integrations/ping` desde JavaScript de terceros ni incluir una clave en el widget.
 - Las cookies de sesión son `HttpOnly`, `SameSite=None` y `Secure` en producción para permitir solicitudes entre Firebase Hosting y Render; en desarrollo usan `SameSite=Strict`. Se limitan a ocho horas. Los cambios requieren JSON y validación del origen.
 - El backend no registra contraseñas, tokens, API keys ni NIP. Los registros de uso no incluyen IP; el campo de origen se limita a la solicitud de prueba.
@@ -79,7 +80,8 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 - `GET /v1/applications`, `POST /v1/applications` — aplicaciones de la organización.
 - `GET /v1/applications/{id}/keys`, `POST /v1/applications/{id}/keys`, `DELETE /v1/applications/{applicationId}/keys/{keyId}` — administrar claves.
 - `POST /v1/integrations/ping` — validar identificación de aplicación en Sandbox.
-- `GET /v1/admin/organizations`, `POST /v1/admin/organizations/{id}/decision` — administración de registros.
-- `GET /v1/admin/usage/summary` — resumen global y últimas 50 solicitudes de integración, con organización, aplicación, dominio de origen y endpoint (administrador). Actualmente se registran las llamadas exitosas a `/v1/integrations/ping`; el dominio de origen no incluye una ruta de página.
+- `GET /v1/admin/organizations`, `POST /v1/admin/organizations/{id}/decision` — consulta y aprobación/suspensión de organizaciones.
+- `POST /v1/admin/organizations/{id}/api-access`, `GET /v1/admin/organizations/{id}/applications`, `POST /v1/admin/applications/{id}/api-access`, `DELETE /v1/admin/organizations/{organizationId}/applications/{applicationId}/keys/{keyId}` — habilitar/deshabilitar acceso al API por organización o aplicación, consultar metadatos de claves y revocarlas desde el panel de administración. Nunca se muestran secretos de claves.
+- `GET /v1/admin/usage/summary` — resumen global y últimas 50 solicitudes a `/v1/integrations/ping` autenticadas con una clave vigente, incluyendo resultados bloqueados por estado de organización o permisos API. Las claves inválidas no se asocian a registros; el dominio de origen no incluye una ruta de página.
 - `GET /docs`, `GET /openapi.json` — documentación interactiva y especificación.
 - `GET /health/live`, `GET /health/ready` — comprobaciones operativas.

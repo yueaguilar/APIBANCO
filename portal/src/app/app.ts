@@ -9,6 +9,7 @@ interface Organization {
   id?: string;
   name?: string;
   status?: string;
+  api_enabled?: boolean;
   email?: string;
   role: string;
 }
@@ -17,6 +18,7 @@ interface AdminOrganization {
   id: string;
   name: string;
   status: string;
+  api_enabled: boolean;
   created_at: string;
   member_count: number;
   application_count: number;
@@ -28,6 +30,7 @@ interface Application {
   id: string;
   name: string;
   environment: string;
+  api_enabled: boolean;
   created_at: string;
 }
 
@@ -38,6 +41,10 @@ interface ApiKeyMetadata {
   expires_at: string | null;
   revoked_at: string | null;
   last_used_at: string | null;
+}
+
+interface AdminApplication extends Application {
+  keys: ApiKeyMetadata[];
 }
 
 interface UsageSummary {
@@ -78,6 +85,11 @@ export class App {
   protected readonly applications = signal<Application[]>([]);
   protected readonly apiKeys = signal<Record<string, ApiKeyMetadata[]>>({});
   protected readonly organizations = signal<AdminOrganization[]>([]);
+  protected readonly adminApplications = signal<Record<string, AdminApplication[]>>({});
+  protected readonly expandedAdminOrganizationId = signal<string | null>(null);
+  protected readonly adminApplicationsLoading = signal<string | null>(null);
+  protected readonly adminApplicationsError = signal<string | null>(null);
+  protected readonly adminAction = signal<string | null>(null);
   protected readonly organizationFilter = signal<OrganizationFilter>('pending');
   protected readonly filteredOrganizations = computed(() => {
     const filter = this.organizationFilter();
@@ -216,6 +228,11 @@ export class App {
         this.applications.set([]);
         this.apiKeys.set({});
         this.organizations.set([]);
+        this.adminApplications.set({});
+        this.expandedAdminOrganizationId.set(null);
+        this.adminApplicationsLoading.set(null);
+        this.adminApplicationsError.set(null);
+        this.adminAction.set(null);
         this.adminOrganizationsLoaded.set(false);
         this.adminOrganizationsError.set(false);
         this.adminRequests.set([]);
@@ -271,6 +288,90 @@ export class App {
     });
   }
 
+  protected toggleOrganizationApiAccess(organization: AdminOrganization) {
+    const enabled = !organization.api_enabled;
+    this.adminAction.set(`organization:${organization.id}`);
+    this.error.set('');
+    this.http.post<{ id: string; api_enabled: boolean }>(
+      `${apiBase}/v1/admin/organizations/${organization.id}/api-access`,
+      { enabled },
+      { withCredentials: true },
+    ).subscribe({
+      next: (updated) => {
+        this.organizations.update((items) => items.map((item) => item.id === updated.id
+          ? { ...item, api_enabled: updated.api_enabled }
+          : item));
+        this.adminAction.set(null);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.adminAction.set(null);
+        this.showError(error);
+      },
+    });
+  }
+
+  protected toggleAdminApplications(organization: AdminOrganization) {
+    if (this.expandedAdminOrganizationId() === organization.id) {
+      this.expandedAdminOrganizationId.set(null);
+      return;
+    }
+    this.expandedAdminOrganizationId.set(organization.id);
+    this.loadAdminApplications(organization.id);
+  }
+
+  protected toggleApplicationApiAccess(organizationId: string, application: AdminApplication) {
+    const enabled = !application.api_enabled;
+    this.adminAction.set(`application:${application.id}`);
+    this.error.set('');
+    this.http.post<{ id: string; api_enabled: boolean }>(
+      `${apiBase}/v1/admin/applications/${application.id}/api-access`,
+      { enabled },
+      { withCredentials: true },
+    ).subscribe({
+      next: (updated) => {
+        this.adminApplications.update((applications) => ({
+          ...applications,
+          [organizationId]: (applications[organizationId] ?? []).map((item) => item.id === updated.id
+            ? { ...item, api_enabled: updated.api_enabled }
+            : item),
+        }));
+        this.adminAction.set(null);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.adminAction.set(null);
+        this.showError(error);
+      },
+    });
+  }
+
+  protected revokeAdminKey(organizationId: string, application: AdminApplication, key: ApiKeyMetadata) {
+    this.adminAction.set(`key:${key.id}`);
+    this.error.set('');
+    this.http.delete(
+      `${apiBase}/v1/admin/organizations/${organizationId}/applications/${application.id}/keys/${key.id}`,
+      { withCredentials: true },
+    ).subscribe({
+      next: () => {
+        this.adminApplications.update((applications) => ({
+          ...applications,
+          [organizationId]: (applications[organizationId] ?? []).map((item) => item.id === application.id
+            ? {
+              ...item,
+              keys: item.keys.map((itemKey) => itemKey.id === key.id
+                ? { ...itemKey, revoked_at: new Date().toISOString() }
+                : itemKey),
+            }
+            : item),
+        }));
+        this.adminAction.set(null);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.adminAction.set(null);
+        this.showError(error);
+      },
+    });
+  }
+
   protected setOrganizationFilter(filter: OrganizationFilter) {
     this.organizationFilter.set(filter);
   }
@@ -278,6 +379,8 @@ export class App {
   protected refreshAdminData() {
     this.loadAdminOrganizations();
     this.loadAdminUsage();
+    const expandedOrganizationId = this.expandedAdminOrganizationId();
+    if (expandedOrganizationId) this.loadAdminApplications(expandedOrganizationId);
   }
 
   private loadUsage() {
@@ -330,6 +433,26 @@ export class App {
     });
   }
 
+  private loadAdminApplications(organizationId: string) {
+    if (this.adminApplicationsLoading() === organizationId) return;
+    this.adminApplicationsLoading.set(organizationId);
+    this.adminApplicationsError.set(null);
+    this.http.get<{ applications: AdminApplication[] }>(
+      `${apiBase}/v1/admin/organizations/${organizationId}/applications`,
+      { withCredentials: true },
+    ).subscribe({
+      next: (result) => {
+        this.adminApplications.update((applications) => ({ ...applications, [organizationId]: result.applications }));
+        this.adminApplicationsLoading.set(null);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.adminApplicationsError.set(organizationId);
+        this.adminApplicationsLoading.set(null);
+        this.showError(error);
+      },
+    });
+  }
+
   private startAdminRefresh() {
     if (this.adminRefreshStarted) return;
     this.adminRefreshStarted = true;
@@ -351,6 +474,7 @@ export class App {
       production_not_enabled: 'El entorno de producción aún no está habilitado.',
       insufficient_permissions: 'Tu cuenta no tiene permisos para esta acción.',
       email_already_registered: 'Ese correo ya tiene una cuenta.',
+      api_access_disabled: 'El administrador todavía no ha habilitado el acceso API para esta organización o aplicación.',
     };
     this.error.set((code ? messages[code] : undefined) ?? 'No se pudo completar la solicitud. Verifica la conexión y vuelve a intentarlo.');
   }
