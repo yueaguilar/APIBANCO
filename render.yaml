@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORTAL_ORIGIN
+        value: https://apibanco-e3112.web.app
       - key: API_ORIGIN
         value: https://banco-kike-api.onrender.com
       - key: DATABASE_URL

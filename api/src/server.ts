@@ -19,12 +19,18 @@ const env = z.object({
   API_ORIGIN: z.string().url().default('http://localhost:3000'),
   NODE_ENV: z.string().default('development'),
 }).parse(process.env);
+const configuredPortalOrigin = env.PORTAL_ORIGIN
+  ?? (env.NODE_ENV === 'production' ? 'https://apibanco-e3112.web.app' : 'http://localhost:4200');
 const allowedBrowserOrigins = new Set([
-  env.API_ORIGIN,
-  ...(env.PORTAL_ORIGIN ? [env.PORTAL_ORIGIN] : env.NODE_ENV === 'production' ? [] : ['http://localhost:4200']),
+  new URL(configuredPortalOrigin).origin,
+  new URL(env.API_ORIGIN).origin,
 ]);
-const isAllowedBrowserOrigin = (origin: string) =>
-  allowedBrowserOrigins.has(origin) || /^https:\/\/[a-z0-9-]+\.(?:web\.app|firebaseapp\.com)$/.test(origin);
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => callback(null, !origin || allowedBrowserOrigins.has(origin)),
+  credentials: true,
+  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
 
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
@@ -44,6 +50,7 @@ declare global {
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+app.use(cors(corsOptions));
 const docsHelmet = helmet({
   contentSecurityPolicy: {
     directives: {
@@ -61,12 +68,6 @@ const docsHelmet = helmet({
 });
 const defaultHelmet = helmet();
 app.use((req, res, next) => (req.path.startsWith('/docs') ? docsHelmet : defaultHelmet)(req, res, next));
-app.use(cors({
-  origin: (origin, callback) => callback(null, !origin || isAllowedBrowserOrigin(origin)),
-  credentials: true,
-  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
 app.use(express.json({ limit: '16kb', strict: true }));
 app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }));
 const authRateLimit = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
@@ -206,7 +207,7 @@ function requireSameOrigin(req: Request, res: Response, next: NextFunction) {
     const hasSession = Boolean(parseCookies(req.headers.cookie).bk_session);
     const origin = req.get('origin');
     const invalidBody = req.method !== 'DELETE' && !req.is('application/json');
-    if (invalidBody || (origin && !isAllowedBrowserOrigin(origin)) || (hasSession && !origin)) {
+    if (invalidBody || (origin && !allowedBrowserOrigins.has(origin)) || (hasSession && !origin)) {
       return res.status(403).json({ error: 'origin_not_allowed' });
     }
   }
