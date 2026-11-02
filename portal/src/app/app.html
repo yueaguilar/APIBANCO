@@ -88,8 +88,16 @@
               <h3>Solicitudes de organizaciones</h3>
               <p>Aprueba solo después de completar la verificación correspondiente.</p>
             </div>
-            <button class="button button-outline" type="button" (click)="refreshAdminData()">Actualizar</button>
+            <button class="button button-outline" type="button" (click)="refreshAdminData()" [disabled]="adminOrganizationsLoading()">
+              {{ adminOrganizationsLoading() ? 'Actualizando…' : 'Actualizar' }}
+            </button>
           </div>
+
+          @if (adminOrganizationsError()) {
+            <div class="notice notice-error admin-load-error" role="alert">
+              No se pudo actualizar la lista. Verifica tu sesión de administrador y la conexión con el API.
+            </div>
+          }
 
           <div class="admin-filters" aria-label="Filtrar organizaciones">
             <button class="filter-button" type="button" [class.selected]="organizationFilter() === 'pending'" [attr.aria-pressed]="organizationFilter() === 'pending'" (click)="setOrganizationFilter('pending')">Pendientes <span>{{ pendingOrganizationCount() }}</span></button>
@@ -99,29 +107,36 @@
             <button class="filter-button" type="button" [class.selected]="organizationFilter() === 'suspended'" [attr.aria-pressed]="organizationFilter() === 'suspended'" (click)="setOrganizationFilter('suspended')">Suspendidas</button>
           </div>
 
-          @for (org of filteredOrganizations(); track org.id) {
-            <div class="admin-org-row">
-              <div class="admin-org-details">
-                <strong>{{ org.name }}</strong>
-                <small>Registrada {{ org.created_at | date:'mediumDate' }} · {{ org.member_count }} integrantes · {{ org.application_count }} aplicaciones</small>
-              </div>
-              <span class="organization-status" [class]="'organization-status status-' + org.status">{{ org.status === 'pending' ? 'Pendiente' : (org.status === 'active' ? 'Activa' : (org.status === 'rejected' ? 'Rechazada' : 'Suspendida')) }}</span>
-              @if (org.status === 'pending') {
-                <div class="admin-actions">
-                  <button class="button button-outline" type="button" (click)="decideOrganization(org, 'active')">Aprobar</button>
-                  <button class="button button-quiet" type="button" (click)="decideOrganization(org, 'rejected')">Rechazar</button>
+          @if (!adminOrganizationsLoaded()) {
+            <div class="empty-state" role="status"><strong>Cargando organizaciones…</strong></div>
+          } @else {
+            @for (org of filteredOrganizations(); track org.id) {
+              <div class="admin-org-row">
+                <div class="admin-org-details">
+                  <strong>{{ org.name }}</strong>
+                  <small>Registrada {{ org.created_at | date:'mediumDate' }} · {{ org.member_count }} integrantes · {{ org.application_count }} aplicaciones</small>
                 </div>
-              } @else if (org.status === 'active') {
-                <button class="button button-quiet" type="button" (click)="decideOrganization(org, 'suspended')">Suspender</button>
-              } @else if (org.status === 'suspended') {
-                <button class="button button-outline" type="button" (click)="decideOrganization(org, 'active')">Reactivar</button>
-              }
-            </div>
-          } @empty {
-            <div class="empty-state">
-              <strong>{{ organizationFilter() === 'pending' ? 'No hay solicitudes pendientes' : 'No hay organizaciones en esta categoría' }}</strong>
-              <p>{{ organizationFilter() === 'pending' ? 'Las nuevas solicitudes aparecerán aquí para su revisión.' : 'Prueba otro filtro para consultar organizaciones.' }}</p>
-            </div>
+                <span class="organization-status" [class]="'organization-status status-' + org.status">{{ org.status === 'pending' ? 'Pendiente' : (org.status === 'active' ? 'Activa' : (org.status === 'rejected' ? 'Rechazada' : 'Suspendida')) }}</span>
+                @if (org.status === 'pending') {
+                  <div class="admin-actions">
+                    <button class="button button-outline" type="button" (click)="decideOrganization(org, 'active')">Aprobar</button>
+                    <button class="button button-quiet" type="button" (click)="decideOrganization(org, 'rejected')">Rechazar</button>
+                  </div>
+                } @else if (org.status === 'active') {
+                  <button class="button button-quiet" type="button" (click)="decideOrganization(org, 'suspended')">Suspender</button>
+                } @else if (org.status === 'suspended') {
+                  <button class="button button-outline" type="button" (click)="decideOrganization(org, 'active')">Reactivar</button>
+                }
+              </div>
+            } @empty {
+              <div class="empty-state">
+                <strong>{{ adminOrganizationsError() ? 'No se pudo consultar la lista' : (organizationFilter() === 'pending' ? 'No hay solicitudes pendientes' : 'No hay organizaciones en esta categoría') }}</strong>
+                <p>{{ adminOrganizationsError() ? 'Actualiza la lista o vuelve a iniciar sesión.' : (organizationFilter() === 'pending' ? 'Las nuevas solicitudes aparecerán aquí para su revisión.' : 'Prueba otro filtro para consultar organizaciones.') }}</p>
+                @if (adminOrganizationsError()) {
+                  <button class="button button-outline" type="button" (click)="refreshAdminData()">Reintentar</button>
+                }
+              </div>
+            }
           }
         </article>
 

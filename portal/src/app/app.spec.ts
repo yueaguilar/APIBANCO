@@ -69,4 +69,41 @@ describe('App', () => {
       .toEqual(['Pendiente']);
     http.verify();
   });
+
+  it('should show newly submitted organizations after refreshing the admin list', async () => {
+    const fixture = TestBed.createComponent(App);
+    const http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+
+    http.expectOne((request) => request.url.endsWith('/v1/me'))
+      .flush({ role: 'platform_admin' });
+    http.expectOne((request) => request.url.endsWith('/v1/admin/organizations'))
+      .flush({ organizations: [] });
+    http.expectOne((request) => request.url.endsWith('/v1/admin/usage/summary'))
+      .flush({ today: 0, last_7_days: 0, this_month: 0, errors: 0 });
+
+    fixture.detectChanges();
+    const refreshButton = fixture.nativeElement.querySelector('.admin-panel-heading button') as HTMLButtonElement;
+    refreshButton.click();
+
+    http.expectOne((request) => request.url.endsWith('/v1/admin/organizations'))
+      .flush({
+        organizations: [{
+          id: 'new-org',
+          name: 'Nueva organización',
+          status: 'pending',
+          created_at: '2026-11-02T00:00:00.000Z',
+          member_count: 1,
+          application_count: 0,
+        }],
+      });
+
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(Array.from(compiled.querySelectorAll('.admin-org-details strong')).map((item) => item.textContent?.trim()))
+      .toEqual(['Nueva organización']);
+    http.verify();
+  });
 });

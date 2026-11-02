@@ -1,7 +1,9 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { interval } from 'rxjs';
 
 interface Organization {
   id?: string;
@@ -74,12 +76,17 @@ export class App {
   );
   protected readonly usage = signal<UsageSummary | null>(null);
   protected readonly isPlatformAdmin = signal(false);
+  protected readonly adminOrganizationsLoading = signal(false);
+  protected readonly adminOrganizationsLoaded = signal(false);
+  protected readonly adminOrganizationsError = signal(false);
   protected readonly canManage = signal(false);
   protected readonly error = signal('');
   protected readonly message = signal('');
   protected readonly loading = signal(false);
   protected readonly registerMode = signal(false);
   protected readonly createdKey = signal('');
+  private readonly destroyRef = inject(DestroyRef);
+  private adminRefreshStarted = false;
   protected email = '';
   protected password = '';
   protected organizationName = '';
@@ -93,6 +100,7 @@ export class App {
         if (organization.role === 'platform_admin') {
           this.isPlatformAdmin.set(true);
           this.loadAdminData();
+          this.startAdminRefresh();
           return;
         }
         this.loadApplications();
@@ -141,6 +149,7 @@ export class App {
           if (organization.role === 'platform_admin') {
             this.isPlatformAdmin.set(true);
             this.loadAdminData();
+            this.startAdminRefresh();
           } else {
             this.loadApplications();
             this.loadUsage();
@@ -188,6 +197,8 @@ export class App {
         this.applications.set([]);
         this.apiKeys.set({});
         this.organizations.set([]);
+        this.adminOrganizationsLoaded.set(false);
+        this.adminOrganizationsError.set(false);
         this.usage.set(null);
         this.createdKey.set('');
       },
@@ -244,7 +255,7 @@ export class App {
   }
 
   protected refreshAdminData() {
-    this.loadAdminData();
+    this.loadAdminOrganizations();
   }
 
   private loadUsage() {
@@ -255,14 +266,40 @@ export class App {
   }
 
   private loadAdminData() {
-    this.http.get<{ organizations: AdminOrganization[] }>(`${apiBase}/v1/admin/organizations`, { withCredentials: true }).subscribe({
-      next: (result) => this.organizations.set(result.organizations),
-      error: (error: HttpErrorResponse) => this.showError(error),
-    });
+    this.loadAdminOrganizations();
     this.http.get<UsageSummary>(`${apiBase}/v1/admin/usage/summary`, { withCredentials: true }).subscribe({
       next: (usage) => this.usage.set(usage),
       error: (error: HttpErrorResponse) => this.showError(error),
     });
+  }
+
+  private loadAdminOrganizations() {
+    if (this.adminOrganizationsLoading()) return;
+    this.adminOrganizationsLoading.set(true);
+    this.http.get<{ organizations: AdminOrganization[] }>(`${apiBase}/v1/admin/organizations`, { withCredentials: true }).subscribe({
+      next: (result) => {
+        this.organizations.set(result.organizations);
+        this.adminOrganizationsLoaded.set(true);
+        this.adminOrganizationsError.set(false);
+        this.adminOrganizationsLoading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.adminOrganizationsLoaded.set(true);
+        this.adminOrganizationsError.set(true);
+        this.adminOrganizationsLoading.set(false);
+        this.showError(error);
+      },
+    });
+  }
+
+  private startAdminRefresh() {
+    if (this.adminRefreshStarted) return;
+    this.adminRefreshStarted = true;
+    interval(60_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        if (this.isPlatformAdmin()) this.loadAdminOrganizations();
+      });
   }
 
   private showError(error: HttpErrorResponse) {
