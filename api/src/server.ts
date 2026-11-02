@@ -64,7 +64,7 @@ const docsHelmet = helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:'],
+      imgSrc: ["'self'", 'data:', firebasePortalOrigin],
       connectSrc: ["'self'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -186,7 +186,115 @@ const openApi = {
     },
   },
 };
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApi));
+const swaggerCustomCss = `
+  html, body {
+    min-width: 320px;
+    background:
+      radial-gradient(ellipse at 12% 0%, rgba(32, 113, 142, .2), transparent 34rem),
+      radial-gradient(ellipse at 88% 26%, rgba(20, 72, 106, .18), transparent 32rem),
+      linear-gradient(135deg, #081a2d, #0d1b2a);
+    color: #edf9ff;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .swagger-ui { color: #edf9ff; font-family: inherit; }
+  .swagger-ui .topbar {
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, .18);
+    background: rgba(8, 26, 45, .88);
+  }
+  .swagger-ui .topbar .wrapper { max-width: 1180px; }
+  .swagger-ui .topbar-wrapper .link { display: block; width: 190px; height: 56px; font-size: 0; }
+  .swagger-ui .topbar-wrapper .link svg { display: none; }
+  .swagger-ui .topbar-wrapper .link::before {
+    display: block;
+    width: 190px;
+    height: 56px;
+    background: url("${firebasePortalOrigin}/logo.ico") center / contain no-repeat;
+    content: "";
+  }
+  .swagger-ui .information-container, .swagger-ui .scheme-container {
+    border-color: rgba(255, 255, 255, .12);
+    background: transparent;
+    box-shadow: none;
+  }
+  .swagger-ui .info, .swagger-ui .info .title, .swagger-ui .info p,
+  .swagger-ui .info li, .swagger-ui .info a, .swagger-ui .opblock-tag,
+  .swagger-ui .opblock-tag small, .swagger-ui .servers-title,
+  .swagger-ui label, .swagger-ui .parameter__name, .swagger-ui .parameter__type,
+  .swagger-ui table thead tr th, .swagger-ui table tbody tr td,
+  .swagger-ui .response-col_status, .swagger-ui .response-col_description,
+  .swagger-ui .model-title, .swagger-ui section.models h4,
+  .swagger-ui .model, .swagger-ui .model-toggle, .swagger-ui .prop-type,
+  .swagger-ui .prop-format, .swagger-ui .renderedMarkdown p {
+    color: #edf9ff;
+  }
+  .swagger-ui .info .title { color: #c9f6ff; }
+  .swagger-ui .info a, .swagger-ui .renderedMarkdown a { color: #90e0ef; }
+  .swagger-ui .opblock-tag { border-bottom-color: rgba(255, 255, 255, .18); }
+  .swagger-ui .opblock-tag:hover { background: rgba(255, 255, 255, .04); }
+  .swagger-ui .opblock .opblock-summary {
+    border-color: rgba(255, 255, 255, .12);
+    background: rgba(255, 255, 255, .045);
+  }
+  .swagger-ui .opblock .opblock-summary-description,
+  .swagger-ui .opblock .opblock-summary-path,
+  .swagger-ui .opblock .opblock-summary-method { color: #edf9ff; }
+  .swagger-ui .opblock .opblock-section-header,
+  .swagger-ui .responses-wrapper,
+  .swagger-ui .parameters-container,
+  .swagger-ui .model-box, .swagger-ui .highlight-code,
+  .swagger-ui .microlight, .swagger-ui .tab li,
+  .swagger-ui .response-control-media-type__accept-header {
+    border-color: rgba(255, 255, 255, .12);
+    background: rgba(3, 14, 26, .38);
+    color: #edf9ff;
+  }
+  .swagger-ui .opblock .opblock-section-header h4,
+  .swagger-ui .opblock .opblock-section-header label,
+  .swagger-ui .tab li, .swagger-ui .response-control-media-type__accept-header {
+    color: #b9d3df;
+  }
+  .swagger-ui input, .swagger-ui select, .swagger-ui textarea {
+    border-color: rgba(255, 255, 255, .2);
+    background: rgba(3, 14, 26, .55);
+    color: #edf9ff;
+  }
+  .swagger-ui select option { background: #0d1b2a; color: #edf9ff; }
+  .swagger-ui .btn {
+    border-color: rgba(144, 224, 239, .32);
+    color: #c9f6ff;
+  }
+  .swagger-ui .btn.execute {
+    border-color: rgba(201, 246, 255, .35);
+    background: linear-gradient(135deg, rgba(144, 224, 239, .34), rgba(62, 153, 177, .24));
+    color: #c9f6ff;
+  }
+  .swagger-ui .btn.cancel { border-color: rgba(255, 140, 168, .4); color: #ff8ca8; }
+  .swagger-ui .authorization__btn svg, .swagger-ui .expand-operation svg,
+  .swagger-ui .expand-methods svg, .swagger-ui .opblock-control-arrow {
+    fill: #90e0ef;
+  }
+  .swagger-ui .responses-inner h4, .swagger-ui .responses-inner h5 { color: #c9f6ff; }
+  .swagger-ui .response pre, .swagger-ui .curl-command, .swagger-ui .copy-to-clipboard {
+    background: rgba(3, 14, 26, .6);
+    color: #edf9ff;
+  }
+  .swagger-ui .dialog-ux .modal-ux {
+    border-color: rgba(255, 255, 255, .18);
+    background: #0d1b2a;
+    color: #edf9ff;
+  }
+  .swagger-ui .dialog-ux .modal-ux-header h3 { color: #c9f6ff; }
+  @media (max-width: 600px) {
+    .swagger-ui .topbar .wrapper { padding: 0 16px; }
+    .swagger-ui .info { margin: 24px 16px; }
+  }
+`;
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApi, {
+  customCss: swaggerCustomCss,
+  customSiteTitle: 'BANCO KIKE API PLATFORM | Documentación',
+  customfavIcon: `${firebasePortalOrigin}/logo.ico`,
+}));
 app.get('/openapi.json', (_req, res) => res.json(openApi));
 app.get('/health/live', (_req, res) => res.json({ status: 'ok' }));
 app.get('/health/ready', async (_req, res) => {
