@@ -345,13 +345,49 @@ const registrationSchema = z.object({
   password: z.string().min(12).max(128),
 });
 
+function postgresErrorFields(error: unknown) {
+  const details = error instanceof Error
+    ? error as Error & {
+      code?: string;
+      schema?: string;
+      table?: string;
+      column?: string;
+      constraint?: string;
+      detail?: string;
+    }
+    : undefined;
+  const redact = (value: string | undefined) => value
+    ?.replace(/(password(?:_hash|_salt)?|session_secret|database_url|cookie|token)\s*([=:])\s*("[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1$2[REDACTED]')
+    .replace(/(postgres(?:ql)?:\/\/)[^/\s@]+@/gi, '$1[REDACTED]@');
+
+  return {
+    name: redact(details?.name) ?? 'UnknownError',
+    message: redact(details?.message) ?? 'Unknown error',
+    code: redact(details?.code),
+    schema: redact(details?.schema),
+    table: redact(details?.table),
+    column: redact(details?.column),
+    constraint: redact(details?.constraint),
+    detail: redact(details?.detail),
+  };
+}
+
+function isDuplicateUserEmail(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const databaseError = error as Error & { code?: string; table?: string; constraint?: string };
+  return databaseError.code === '23505'
+    && databaseError.table === 'users'
+    && databaseError.constraint === 'users_email_key';
+}
+
 app.post('/v1/organizations', authRateLimit, async (req, res, next) => {
   try {
     const input = registrationSchema.parse(req.body);
     const salt = randomBytes(16);
     const passwordHash = (await scrypt(input.password, salt, 64)) as Buffer;
-    const client = await pool.connect();
+    let client: PoolClient | undefined;
     try {
+      client = await pool.connect();
       await client.query('BEGIN');
       await client.query(`SELECT set_config('app.registration', 'true', true)`);
       const organizationId = randomUUID();
@@ -369,11 +405,23 @@ app.post('/v1/organizations', authRateLimit, async (req, res, next) => {
       await client.query('COMMIT');
       res.status(201).json({ organizationId, status: 'pending_approval' });
     } catch (error) {
-      await client.query('ROLLBACK');
-      if ((error as { code?: string }).code === '23505') return res.status(409).json({ error: 'email_already_registered' });
+      if (client) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          console.error(JSON.stringify({
+            event: 'ORGANIZATION_REGISTRATION_ROLLBACK_FAILED',
+            ...postgresErrorFields(rollbackError),
+          }));
+          client.release(rollbackError instanceof Error ? rollbackError : true);
+          client = undefined;
+          throw error;
+        }
+      }
+      if (isDuplicateUserEmail(error)) return res.status(409).json({ error: 'email_already_registered' });
       throw error;
     } finally {
-      client.release();
+      client?.release();
     }
   } catch (error) { next(error); }
 });
@@ -639,22 +687,11 @@ const errorHandler: express.ErrorRequestHandler = (error, _req, res, _next) => {
   }
   const status = Number((error as { status?: number }).status) || 500;
   if (status >= 500) {
-  const dbError = error as {
-    code?: string;
-    constraint?: string;
-    table?: string;
-    detail?: string;
-  };
-
-  console.error('API_INTERNAL_ERROR', {
-    name: error instanceof Error ? error.name : 'UnknownError',
-    message: error instanceof Error ? error.message : 'Unknown error',
-    code: dbError.code,
-    constraint: dbError.constraint,
-    table: dbError.table,
-    detail: dbError.detail
-  });
-}
+    console.error(JSON.stringify({
+      event: 'API_INTERNAL_ERROR',
+      ...postgresErrorFields(error),
+    }));
+  }
   res.status(status).json({ error: status >= 500 ? 'internal_error' : (error as Error).message });
 };
 app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
