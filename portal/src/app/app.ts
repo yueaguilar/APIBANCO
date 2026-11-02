@@ -47,6 +47,22 @@ interface UsageSummary {
   errors: number;
 }
 
+interface AdminApiRequest {
+  id: string;
+  organization_name: string;
+  application_name: string;
+  origin_domain: string | null;
+  endpoint: string;
+  method: string;
+  status_code: number;
+  duration_ms: number;
+  created_at: string;
+}
+
+interface AdminUsage extends UsageSummary {
+  requests: AdminApiRequest[];
+}
+
 const apiBase = location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://apibanco-4ytc.onrender.com';
 
 @Component({
@@ -75,10 +91,13 @@ export class App {
     () => this.organizations().filter((organization) => organization.status === 'active').length,
   );
   protected readonly usage = signal<UsageSummary | null>(null);
+  protected readonly adminRequests = signal<AdminApiRequest[]>([]);
   protected readonly isPlatformAdmin = signal(false);
   protected readonly adminOrganizationsLoading = signal(false);
   protected readonly adminOrganizationsLoaded = signal(false);
   protected readonly adminOrganizationsError = signal(false);
+  protected readonly adminUsageLoading = signal(false);
+  protected readonly adminUsageError = signal(false);
   protected readonly canManage = signal(false);
   protected readonly error = signal('');
   protected readonly message = signal('');
@@ -199,6 +218,8 @@ export class App {
         this.organizations.set([]);
         this.adminOrganizationsLoaded.set(false);
         this.adminOrganizationsError.set(false);
+        this.adminRequests.set([]);
+        this.adminUsageError.set(false);
         this.usage.set(null);
         this.createdKey.set('');
       },
@@ -256,6 +277,7 @@ export class App {
 
   protected refreshAdminData() {
     this.loadAdminOrganizations();
+    this.loadAdminUsage();
   }
 
   private loadUsage() {
@@ -267,9 +289,25 @@ export class App {
 
   private loadAdminData() {
     this.loadAdminOrganizations();
-    this.http.get<UsageSummary>(`${apiBase}/v1/admin/usage/summary`, { withCredentials: true }).subscribe({
-      next: (usage) => this.usage.set(usage),
-      error: (error: HttpErrorResponse) => this.showError(error),
+    this.loadAdminUsage();
+  }
+
+  private loadAdminUsage() {
+    if (this.adminUsageLoading()) return;
+    this.adminUsageLoading.set(true);
+    this.http.get<AdminUsage>(`${apiBase}/v1/admin/usage/summary`, { withCredentials: true }).subscribe({
+      next: (usage) => {
+        const { requests, ...summary } = usage;
+        this.usage.set(summary);
+        this.adminRequests.set(requests);
+        this.adminUsageError.set(false);
+        this.adminUsageLoading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.adminUsageError.set(true);
+        this.adminUsageLoading.set(false);
+        this.showError(error);
+      },
     });
   }
 
@@ -298,7 +336,7 @@ export class App {
     interval(60_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
-        if (this.isPlatformAdmin()) this.loadAdminOrganizations();
+        if (this.isPlatformAdmin()) this.refreshAdminData();
       });
   }
 

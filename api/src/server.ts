@@ -146,7 +146,7 @@ const openApi = {
         responses: { '200': { description: 'Estado actualizado' } },
       },
     },
-    '/v1/admin/usage/summary': { get: { summary: 'Resumen global de consumo (solo administrador)', security: [{ sessionCookie: [] }], responses: { '200': { description: 'Consumo agregado' } } } },
+    '/v1/admin/usage/summary': { get: { summary: 'Resumen global y últimas 50 solicitudes de integración (solo administrador)', security: [{ sessionCookie: [] }], responses: { '200': { description: 'Consumo agregado y solicitudes registradas con organización, aplicación, dominio de origen y endpoint' } } } },
     '/v1/integrations/ping': { post: { summary: 'Validar identificación de aplicación con API key', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Identificación válida; Sandbox' }, '401': { description: 'Credencial inválida' } } } },
   },
   components: {
@@ -710,15 +710,27 @@ app.get('/v1/admin/organizations', requireSession, requirePlatformAdmin, async (
 
 app.get('/v1/admin/usage/summary', requireSession, requirePlatformAdmin, async (_req, res, next) => {
   try {
-    const result = await withPlatform((client) => client.query(
-      `SELECT
-         count(*) FILTER (WHERE created_at >= date_trunc('day', now()))::int AS today,
-         count(*) FILTER (WHERE created_at >= now() - interval '7 days')::int AS last_7_days,
-         count(*) FILTER (WHERE created_at >= date_trunc('month', now()))::int AS this_month,
-         count(*) FILTER (WHERE status_code >= 400)::int AS errors
-       FROM api_request_logs`,
-    ));
-    res.json(result.rows[0]);
+    const result = await withPlatform(async (client) => {
+      const summary = await client.query(
+        `SELECT
+           count(*) FILTER (WHERE created_at >= date_trunc('day', now()))::int AS today,
+           count(*) FILTER (WHERE created_at >= now() - interval '7 days')::int AS last_7_days,
+           count(*) FILTER (WHERE created_at >= date_trunc('month', now()))::int AS this_month,
+           count(*) FILTER (WHERE status_code >= 400)::int AS errors
+         FROM api_request_logs`,
+      );
+      const requests = await client.query(
+        `SELECT l.id, o.name AS organization_name, a.name AS application_name,
+                l.origin_domain, l.endpoint, l.method, l.status_code, l.duration_ms, l.created_at
+         FROM api_request_logs l
+         JOIN organizations o ON o.id = l.organization_id
+         JOIN applications a ON a.id = l.application_id
+         ORDER BY l.created_at DESC
+         LIMIT 50`,
+      );
+      return { ...summary.rows[0], requests: requests.rows };
+    });
+    res.json(result);
   } catch (error) { next(error); }
 });
 

@@ -80,5 +80,6 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 - `GET /v1/applications/{id}/keys`, `POST /v1/applications/{id}/keys`, `DELETE /v1/applications/{applicationId}/keys/{keyId}` — administrar claves.
 - `POST /v1/integrations/ping` — validar identificación de aplicación en Sandbox.
 - `GET /v1/admin/organizations`, `POST /v1/admin/organizations/{id}/decision` — administración de registros.
+- `GET /v1/admin/usage/summary` — resumen global y últimas 50 solicitudes de integración, con organización, aplicación, dominio de origen y endpoint (administrador). Actualmente se registran las llamadas exitosas a `/v1/integrations/ping`; el dominio de origen no incluye una ruta de página.
 - `GET /docs`, `GET /openapi.json` — documentación interactiva y especificación.
 - `GET /health/live`, `GET /health/ready` — comprobaciones operativas.

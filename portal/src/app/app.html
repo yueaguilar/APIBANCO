@@ -88,8 +88,8 @@
               <h3>Solicitudes de organizaciones</h3>
               <p>Aprueba solo después de completar la verificación correspondiente.</p>
             </div>
-            <button class="button button-outline" type="button" (click)="refreshAdminData()" [disabled]="adminOrganizationsLoading()">
-              {{ adminOrganizationsLoading() ? 'Actualizando…' : 'Actualizar' }}
+            <button class="button button-outline" type="button" (click)="refreshAdminData()" [disabled]="adminOrganizationsLoading() || adminUsageLoading()">
+              {{ adminOrganizationsLoading() || adminUsageLoading() ? 'Actualizando…' : 'Actualizar' }}
             </button>
           </div>
 
@@ -137,6 +137,56 @@
                 }
               </div>
             }
+          }
+        </article>
+
+        <article class="panel-card admin-table">
+          <div class="admin-panel-heading">
+            <div>
+              <p class="eyebrow">TRÁFICO DEL API</p>
+              <h3>Últimas solicitudes de integración</h3>
+              <p>Hasta 50 solicitudes registradas con una API key válida. El origen corresponde al dominio enviado por el navegador.</p>
+            </div>
+          </div>
+
+          @if (adminUsageLoading() && !usage()) {
+            <div class="empty-state" role="status"><strong>Cargando actividad del API…</strong></div>
+          } @else if (adminUsageError()) {
+            <div class="notice notice-error admin-load-error" role="alert">
+              No se pudo consultar la actividad del API. Actualiza el panel para reintentar.
+            </div>
+          } @else if (adminRequests().length) {
+            <div style="overflow-x: auto">
+              <table class="admin-requests-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Organización / aplicación</th>
+                    <th>Origen</th>
+                    <th>Solicitud</th>
+                    <th>Estado</th>
+                    <th>Duración</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (request of adminRequests(); track request.id) {
+                    <tr>
+                      <td>{{ request.created_at | date:'short' }}</td>
+                      <td><strong>{{ request.organization_name }}</strong><small>{{ request.application_name }}</small></td>
+                      <td>{{ request.origin_domain || 'No informado' }}</td>
+                      <td><code>{{ request.method }} {{ request.endpoint }}</code></td>
+                      <td>{{ request.status_code }}</td>
+                      <td>{{ request.duration_ms }} ms</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <div class="empty-state">
+              <strong>No hay solicitudes de integración registradas</strong>
+              <p>Las llamadas exitosas a la API de Sandbox aparecerán aquí.</p>
+            </div>
           }
         </article>
 

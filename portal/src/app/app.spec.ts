@@ -58,7 +58,7 @@ describe('App', () => {
         ],
       });
     http.expectOne((request) => request.url.endsWith('/v1/admin/usage/summary'))
-      .flush({ today: 0, last_7_days: 0, this_month: 0, errors: 0 });
+      .flush({ today: 0, last_7_days: 0, this_month: 0, errors: 0, requests: [] });
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -80,7 +80,7 @@ describe('App', () => {
     http.expectOne((request) => request.url.endsWith('/v1/admin/organizations'))
       .flush({ organizations: [] });
     http.expectOne((request) => request.url.endsWith('/v1/admin/usage/summary'))
-      .flush({ today: 0, last_7_days: 0, this_month: 0, errors: 0 });
+      .flush({ today: 0, last_7_days: 0, this_month: 0, errors: 0, requests: [] });
 
     fixture.detectChanges();
     const refreshButton = fixture.nativeElement.querySelector('.admin-panel-heading button') as HTMLButtonElement;
@@ -97,6 +97,24 @@ describe('App', () => {
           application_count: 0,
         }],
       });
+    http.expectOne((request) => request.url.endsWith('/v1/admin/usage/summary'))
+      .flush({
+        today: 1,
+        last_7_days: 1,
+        this_month: 1,
+        errors: 0,
+        requests: [{
+          id: '1',
+          organization_name: 'Nueva organización',
+          application_name: 'Portal comercio',
+          origin_domain: 'comercio.example',
+          endpoint: '/v1/integrations/ping',
+          method: 'POST',
+          status_code: 200,
+          duration_ms: 18,
+          created_at: '2026-11-02T00:00:00.000Z',
+        }],
+      });
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -104,6 +122,12 @@ describe('App', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(Array.from(compiled.querySelectorAll('.admin-org-details strong')).map((item) => item.textContent?.trim()))
       .toEqual(['Nueva organización']);
+    expect(compiled.querySelector('.admin-requests-table')?.textContent)
+      .toContain('comercio.example');
+    expect(compiled.querySelector('.admin-requests-table')?.textContent)
+      .toContain('Portal comercio');
+    expect(compiled.querySelector('.admin-requests-table')?.textContent)
+      .toContain('/v1/integrations/ping');
     http.verify();
   });
 });
