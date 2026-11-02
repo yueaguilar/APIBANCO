@@ -311,6 +311,32 @@ input:focus {
   margin: 10px 0 24px;
 }
 
+.admin-welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 10px 0 24px;
+  padding: 26px 28px;
+  border: 1px solid rgba(144, 224, 239, .2);
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at 90% 0, rgba(144, 224, 239, .12), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .035));
+}
+
+.admin-welcome h2 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: clamp(22px, 3vw, 29px);
+}
+
+.admin-welcome p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .section-heading h2 {
   margin: 0;
   color: var(--text);
@@ -320,6 +346,13 @@ input:focus {
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -345,6 +378,65 @@ input:focus {
   margin-top: 16px;
 }
 
+.admin-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, .1);
+}
+
+.admin-panel-heading h3 {
+  margin: 0;
+}
+
+.admin-panel-heading p:not(.eyebrow) {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 16px 0 8px;
+}
+
+.filter-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.filter-button:hover,
+.filter-button.selected {
+  border-color: rgba(144, 224, 239, .24);
+  background: rgba(144, 224, 239, .09);
+  color: var(--primary-strong);
+}
+
+.filter-button span {
+  display: grid;
+  min-width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 7px;
+  background: rgba(144, 224, 239, .14);
+  font-size: 10px;
+  font-weight: 750;
+}
+
 .admin-org-row {
   display: flex;
   align-items: center;
@@ -353,8 +445,9 @@ input:focus {
   border-top: 1px solid rgba(255, 255, 255, .1);
 }
 
-.admin-org-row > div {
+.admin-org-details {
   flex: 1;
+  min-width: 190px;
 }
 
 .admin-org-row strong,
@@ -373,6 +466,39 @@ input:focus {
   margin-top: 5px;
   color: var(--muted);
   font-size: 10px;
+}
+
+.organization-status {
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.status-pending {
+  border-color: rgba(233, 182, 92, .3);
+  background: rgba(233, 182, 92, .08);
+  color: #e9c27c;
+}
+
+.status-active {
+  border-color: rgba(142, 240, 176, .25);
+  background: rgba(57, 150, 103, .12);
+  color: var(--success);
+}
+
+.status-rejected,
+.status-suspended {
+  border-color: rgba(255, 140, 168, .24);
+  background: rgba(177, 64, 87, .1);
+  color: var(--danger);
+}
+
+.admin-actions {
+  display: flex;
+  gap: 5px;
 }
 
 .approval-state {
@@ -625,8 +751,30 @@ input:focus {
     flex-wrap: wrap;
   }
 
-  .admin-org-row > div {
+  .admin-welcome {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 22px;
+  }
+
+  .admin-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-panel-heading {
+    align-items: flex-start;
+  }
+
+  .admin-org-row {
+    align-items: flex-start;
+  }
+
+  .admin-org-details {
     flex-basis: 100%;
+  }
+
+  .admin-actions {
+    margin-left: auto;
   }
 
   .intro-card {

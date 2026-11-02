@@ -1,5 +1,5 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -19,6 +19,8 @@ interface AdminOrganization {
   member_count: number;
   application_count: number;
 }
+
+type OrganizationFilter = 'pending' | 'all' | 'active' | 'rejected' | 'suspended';
 
 interface Application {
   id: string;
@@ -58,6 +60,18 @@ export class App {
   protected readonly applications = signal<Application[]>([]);
   protected readonly apiKeys = signal<Record<string, ApiKeyMetadata[]>>({});
   protected readonly organizations = signal<AdminOrganization[]>([]);
+  protected readonly organizationFilter = signal<OrganizationFilter>('pending');
+  protected readonly filteredOrganizations = computed(() => {
+    const filter = this.organizationFilter();
+    const organizations = this.organizations();
+    return filter === 'all' ? organizations : organizations.filter((organization) => organization.status === filter);
+  });
+  protected readonly pendingOrganizationCount = computed(
+    () => this.organizations().filter((organization) => organization.status === 'pending').length,
+  );
+  protected readonly activeOrganizationCount = computed(
+    () => this.organizations().filter((organization) => organization.status === 'active').length,
+  );
   protected readonly usage = signal<UsageSummary | null>(null);
   protected readonly isPlatformAdmin = signal(false);
   protected readonly canManage = signal(false);
@@ -223,6 +237,14 @@ export class App {
       next: (updated) => this.organizations.update((items) => items.map((item) => item.id === updated.id ? { ...item, status: updated.status } : item)),
       error: (error: HttpErrorResponse) => this.showError(error),
     });
+  }
+
+  protected setOrganizationFilter(filter: OrganizationFilter) {
+    this.organizationFilter.set(filter);
+  }
+
+  protected refreshAdminData() {
+    this.loadAdminData();
   }
 
   private loadUsage() {
