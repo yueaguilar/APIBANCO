@@ -47,6 +47,21 @@ describe('App', () => {
       .toContain('002_admin_api_access.sql');
   });
 
+  it('should explain how to start the local API when the portal cannot connect', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController)
+      .expectOne((request) => request.url.endsWith('/v1/me'))
+      .error(new ProgressEvent('error'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent)
+      .toContain('No se pudo conectar con el API local en http://localhost:3000');
+    expect((fixture.nativeElement as HTMLElement).textContent)
+      .toContain('npm run api:dev');
+  });
+
   it('should show pending organization requests only after platform admin authentication', async () => {
     const fixture = TestBed.createComponent(App);
     const http = TestBed.inject(HttpTestingController);

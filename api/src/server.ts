@@ -26,8 +26,12 @@ const firebasePortalHostname = new URL(firebasePortalOrigin).hostname;
 const pairedFirebaseAppOrigin = firebasePortalHostname.endsWith('.web.app')
   ? `https://${firebasePortalHostname.replace(/\.web\.app$/, '.firebaseapp.com')}`
   : undefined;
+const localPortalOrigins = env.NODE_ENV === 'production'
+  ? []
+  : ['http://localhost:4200', 'http://127.0.0.1:4200'];
 const allowedBrowserOrigins = new Set([
   new URL(configuredPortalOrigin).origin,
+  ...localPortalOrigins,
   firebasePortalOrigin,
   ...(pairedFirebaseAppOrigin ? [pairedFirebaseAppOrigin] : []),
   new URL(env.API_ORIGIN).origin,

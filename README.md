@@ -24,7 +24,7 @@ Esta primera entrega proporciona una base ejecutable, enfocada en **Sandbox**:
 ## Desarrollo local
 
 1. Crear una base de datos en Neon y ejecutar, en orden, `api/migrations/001_initial.sql` y `api/migrations/002_admin_api_access.sql` desde una conexión administrativa. La segunda migración agrega permisos explícitos de API por organización y aplicación; a los registros existentes les conserva el acceso que ya tenían.
-2. Copiar `api/.env.example` a `api/.env` y configurar `DATABASE_URL`, `SESSION_SECRET` (mínimo 32 caracteres), `PORTAL_ORIGIN`, `API_ORIGIN` y `NODE_ENV`. No subir `.env`.
+2. Copiar `api/.env.example` a `api/.env` y configurar `DATABASE_URL`, `SESSION_SECRET` (mínimo 32 caracteres), `PORTAL_ORIGIN`, `API_ORIGIN` y `NODE_ENV`. Para desarrollo local usa `NODE_ENV=development`, `PORTAL_ORIGIN=http://localhost:4200` y `API_ORIGIN=http://localhost:3000`; el API permite esos dos orígenes localhost en modo no productivo. No subir `.env`.
 3. Instalar las dependencias del backend y del portal:
 
    ```sh
@@ -59,7 +59,7 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 
 ## Despliegue
 
-- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL` y aplicar las migraciones, especialmente `002_admin_api_access.sql`, antes de publicar una versión que dependa de `api_enabled`. `/health/ready` comprueba ahora que las columnas requeridas existen, por lo que Render no enviará tráfico a una instancia con un esquema incompatible. Render ofrece una URL `*.onrender.com` sin configurar un dominio propio.
+- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL` y aplicar `002_admin_api_access.sql` en Neon antes de desplegar una versión que dependa de `api_enabled`. La instancia actual confirma `database_schema_outdated` en `/health/ready`, que explica el 503: el esquema de Neon aún no tiene esas columnas. El API no ejecuta DDL automáticamente en producción. Después de aplicar la migración, vuelve a desplegar/reiniciar el servicio; `/health/ready` responderá 200 cuando el esquema esté disponible. Render ofrece una URL `*.onrender.com` sin configurar un dominio propio.
 - **Portal:** ejecutar `npm --prefix portal run build` y desplegar `portal/dist/portal/browser` en Firebase Hosting. Firebase proporciona automáticamente una URL `*.web.app`; no hace falta asociar un dominio propio.
 
 ## Seguridad / operación

@@ -477,6 +477,14 @@ export class App {
       api_access_disabled: 'El administrador todavía no ha habilitado el acceso API para esta organización o aplicación.',
       database_schema_outdated: 'El servicio requiere actualizar la base de datos. El administrador debe aplicar la migración 002_admin_api_access.sql y volver a intentar.',
     };
+    if (error.status === 0 && location.hostname === 'localhost') {
+      this.error.set('No se pudo conectar con el API local en http://localhost:3000. Verifica api/.env y arranca la API con npm run api:dev.');
+      return;
+    }
+    if (error.status === 503 && code === 'database_schema_outdated') {
+      this.error.set(messages['database_schema_outdated']);
+      return;
+    }
     this.error.set((code ? messages[code] : undefined) ?? 'No se pudo completar la solicitud. Verifica la conexión y vuelve a intentarlo.');
   }
 }
