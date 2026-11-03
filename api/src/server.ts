@@ -141,6 +141,25 @@ const openApi = {
     },
     '/v1/applications/{applicationId}/keys/{keyId}': { delete: { summary: 'Revocar API key', security: [{ sessionCookie: [] }], parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }, { name: 'keyId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], responses: { '204': { description: 'Clave revocada' } } } },
     '/v1/admin/organizations': { get: { summary: 'Listar organizaciones (solo administrador de plataforma)', security: [{ sessionCookie: [] }], responses: { '200': { description: 'Organizaciones' } } } },
+    '/v1/admin/users': { get: { summary: 'Listar usuarios con búsqueda y paginación (solo administrador de plataforma)', security: [{ sessionCookie: [] }], parameters: [{ name: 'page', in: 'query', schema: { type: 'integer', minimum: 1 } }, { name: 'pageSize', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100 } }, { name: 'search', in: 'query', schema: { type: 'string' } }, { name: 'organizationId', in: 'query', schema: { type: 'string', format: 'uuid' } }, { name: 'role', in: 'query', schema: { type: 'string', enum: ['org_owner', 'org_admin', 'org_member', 'platform_admin'] } }, { name: 'active', in: 'query', schema: { type: 'boolean' } }], responses: { '200': { description: 'Usuarios y total de resultados' } } } },
+    '/v1/admin/users/{id}': { get: { summary: 'Consultar usuario (solo administrador de plataforma)', security: [{ sessionCookie: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], responses: { '200': { description: 'Usuario' }, '404': { description: 'Usuario no encontrado' } } } },
+    '/v1/admin/users/{id}/role': {
+      patch: {
+        summary: 'Modificar rol de usuario (solo administrador de plataforma)',
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/UserRoleUpdate' } } } },
+        responses: {
+          '200': { description: 'Rol actualizado' },
+          '400': { description: 'Rol u organización inválida' },
+          '403': { description: 'No permitido o último administrador global' },
+          '409': { description: 'Debe mantenerse al menos un administrador global activo' },
+        },
+      },
+    },
+    '/v1/admin/users/{id}/status': { patch: { summary: 'Activar o desactivar cuenta (solo administrador de plataforma)', security: [{ sessionCookie: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/UserStatusUpdate' } } } }, responses: { '200': { description: 'Estado actualizado' }, '403': { description: 'No permitido o último administrador global' } } } },
+    '/v1/admin/roles': { get: { summary: 'Consultar roles y alcance (solo administrador de plataforma)', security: [{ sessionCookie: [] }], responses: { '200': { description: 'Roles disponibles' } } } },
+    '/v1/admin/audit-logs': { get: { summary: 'Consultar historial de cambios de usuarios y roles (solo administrador de plataforma)', security: [{ sessionCookie: [] }], parameters: [{ name: 'page', in: 'query', schema: { type: 'integer', minimum: 1 } }, { name: 'pageSize', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100 } }], responses: { '200': { description: 'Historial paginado' } } } },
     '/v1/admin/organizations/{id}/applications': { get: { summary: 'Listar aplicaciones y metadatos de claves de una organización', security: [{ sessionCookie: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], responses: { '200': { description: 'Aplicaciones, acceso API y metadatos de claves; nunca incluye secretos' } } } },
     '/v1/admin/organizations/{id}/api-access': { post: { summary: 'Habilitar o deshabilitar el acceso API de una organización', security: [{ sessionCookie: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiAccessDecision' } } } }, responses: { '200': { description: 'Acceso actualizado' } } } },
     '/v1/admin/applications/{id}/api-access': { post: { summary: 'Habilitar o deshabilitar el acceso API de una aplicación', security: [{ sessionCookie: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiAccessDecision' } } } }, responses: { '200': { description: 'Acceso actualizado' } } } },
@@ -168,6 +187,7 @@ const openApi = {
         required: ['organizationName', 'email', 'password'],
         properties: {
           organizationName: { type: 'string', minLength: 2, maxLength: 160 },
+          fullName: { type: 'string', maxLength: 120 },
           email: { type: 'string', format: 'email' },
           password: { type: 'string', minLength: 12, maxLength: 128 },
         },
@@ -195,6 +215,19 @@ const openApi = {
         type: 'object',
         required: ['enabled'],
         properties: { enabled: { type: 'boolean' } },
+      },
+      UserRoleUpdate: {
+        type: 'object',
+        required: ['role'],
+        properties: {
+          role: { type: 'string', enum: ['org_owner', 'org_admin', 'org_member', 'platform_admin'] },
+          organizationId: { type: 'string', format: 'uuid', nullable: true },
+        },
+      },
+      UserStatusUpdate: {
+        type: 'object',
+        required: ['active'],
+        properties: { active: { type: 'boolean' } },
       },
     },
   },
@@ -312,24 +345,40 @@ app.get('/openapi.json', (_req, res) => res.json(openApi));
 app.get('/health/live', (_req, res) => res.json({ status: 'ok' }));
 app.get('/health/ready', async (_req, res) => {
   try {
-    const result = await pool.query<{ schema_ready: boolean }>(
+    const result = await pool.query<{
+      organization_api_enabled: boolean;
+      application_api_enabled: boolean;
+      user_full_name: boolean;
+      user_audit: boolean;
+    }>(
       `SELECT
          EXISTS (
            SELECT 1 FROM information_schema.columns
            WHERE table_schema = current_schema()
              AND table_name = 'organizations' AND column_name = 'api_enabled'
-         )
-         AND EXISTS (
+         ) AS organization_api_enabled,
+         EXISTS (
            SELECT 1 FROM information_schema.columns
            WHERE table_schema = current_schema()
              AND table_name = 'applications' AND column_name = 'api_enabled'
-         ) AS schema_ready`,
+         ) AS application_api_enabled,
+         EXISTS (
+           SELECT 1 FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'users' AND column_name = 'full_name'
+         ) AS user_full_name,
+         to_regclass(current_schema() || '.admin_user_audit') IS NOT NULL AS user_audit`,
     );
-    if (!result.rows[0]?.schema_ready) {
+    const schema = result.rows[0];
+    const requiredMigrations = [
+      ...(!schema.organization_api_enabled || !schema.application_api_enabled ? ['002_admin_api_access.sql'] : []),
+      ...(!schema.user_full_name || !schema.user_audit ? ['003_admin_user_management.sql'] : []),
+    ];
+    if (requiredMigrations.length) {
       return res.status(503).json({
         status: 'unavailable',
         error: 'database_schema_outdated',
-        requiredMigration: '002_admin_api_access.sql',
+        requiredMigrations,
       });
     }
     res.json({ status: 'ready' });
@@ -479,8 +528,42 @@ async function audit(client: PoolClient, organizationId: string | null, actorId:
   );
 }
 
+async function auditAdminUserChange(
+  client: PoolClient,
+  input: {
+    actorId: string;
+    targetId: string;
+    organizationId: string | null;
+    action: 'role_changed' | 'account_status_changed';
+    previousRole: Role;
+    newRole: Role;
+    previousActive: boolean;
+    newActive: boolean;
+    outcome: 'success' | 'rejected';
+  },
+) {
+  await client.query(
+    `INSERT INTO admin_user_audit
+       (actor_user_id, target_user_id, organization_id, action, previous_role, new_role,
+        previous_active, new_active, outcome)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      input.actorId,
+      input.targetId,
+      input.organizationId,
+      input.action,
+      input.previousRole,
+      input.newRole,
+      input.previousActive,
+      input.newActive,
+      input.outcome,
+    ],
+  );
+}
+
 const registrationSchema = z.object({
   organizationName: z.string().trim().min(2).max(160),
+  fullName: z.string().trim().max(120).optional().transform((value) => value || null),
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(12).max(128),
 });
@@ -537,9 +620,9 @@ app.post('/v1/organizations', authRateLimit, async (req, res, next) => {
       );
       await client.query(`SELECT set_config('app.organization_id', $1, true)`, [organizationId]);
       const user = await client.query(
-        `INSERT INTO users (organization_id, email, password_hash, password_salt, role)
-         VALUES ($1, $2, $3, $4, 'org_owner') RETURNING id`,
-        [organizationId, input.email, passwordHash, salt],
+        `INSERT INTO users (organization_id, full_name, email, password_hash, password_salt, role)
+         VALUES ($1, $2, $3, $4, $5, 'org_owner') RETURNING id`,
+        [organizationId, input.fullName, input.email, passwordHash, salt],
       );
       await audit(client, organizationId, user.rows[0].id, 'organization.registered');
       await client.query('COMMIT');
@@ -604,7 +687,7 @@ app.get('/v1/me', requireSession, async (req, res, next) => {
   try {
     const { principal } = req;
     if (!principal) return res.status(401).json({ error: 'authentication_required' });
-    if (!principal.organizationId) return res.json({ role: principal.role });
+    if (!principal.organizationId) return res.json({ id: principal.userId, role: principal.role });
     const result = await withTenant(principal.organizationId, (client) => client.query(
       `SELECT o.id, o.name, o.status, o.api_enabled, u.email, u.role
        FROM organizations o JOIN users u ON u.organization_id = o.id
@@ -737,6 +820,247 @@ app.get('/v1/admin/organizations', requireSession, requirePlatformAdmin, async (
        GROUP BY o.id ORDER BY o.created_at DESC`,
     ));
     res.json({ organizations: result.rows });
+  } catch (error) { next(error); }
+});
+
+app.get('/v1/admin/roles', requireSession, requirePlatformAdmin, (_req, res) => {
+  res.json({
+    roles: [
+      { id: 'org_owner', label: 'Propietario de organización', scope: 'Administra su organización, miembros y aplicaciones.' },
+      { id: 'org_admin', label: 'Administrador de organización', scope: 'Administra las aplicaciones y claves de su organización.' },
+      { id: 'org_member', label: 'Miembro de organización', scope: 'Acceso de miembro a su organización.' },
+      { id: 'platform_admin', label: 'Administrador de plataforma', scope: 'Acceso global a organizaciones, usuarios y permisos.' },
+    ],
+  });
+});
+
+app.get('/v1/admin/users', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const query = z.object({
+      page: z.coerce.number().int().min(1).default(1),
+      pageSize: z.coerce.number().int().min(1).max(100).default(25),
+      search: z.string().trim().max(120).optional(),
+      organizationId: z.string().uuid().optional(),
+      role: z.enum(roles).optional(),
+      active: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+    }).parse(req.query);
+    const offset = (query.page - 1) * query.pageSize;
+    const result = await withPlatform(async (client) => {
+      const filters = [query.organizationId ?? null, query.role ?? null, query.active ?? null, query.search || null];
+      const where = `($1::uuid IS NULL OR u.organization_id = $1)
+        AND ($2::member_role IS NULL OR u.role = $2)
+        AND ($3::boolean IS NULL OR u.active = $3)
+        AND ($4::text IS NULL OR u.email ILIKE '%' || $4 || '%'
+          OR u.id::text ILIKE '%' || $4 || '%'
+          OR COALESCE(u.full_name, '') ILIKE '%' || $4 || '%'
+          OR COALESCE(o.name, '') ILIKE '%' || $4 || '%')`;
+      const [users, total] = await Promise.all([
+        client.query(
+          `SELECT u.id, u.full_name, u.email, u.organization_id, o.name AS organization_name,
+                  u.role, u.active, u.created_at
+           FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
+           WHERE ${where}
+           ORDER BY u.created_at DESC, u.id
+           LIMIT $5 OFFSET $6`,
+          [...filters, query.pageSize, offset],
+        ),
+        client.query(
+          `SELECT count(*)::int AS total
+           FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
+           WHERE ${where}`,
+          filters,
+        ),
+      ]);
+      return { users: users.rows, total: total.rows[0].total };
+    });
+    res.json({ ...result, page: query.page, pageSize: query.pageSize });
+  } catch (error) { next(error); }
+});
+
+app.get('/v1/admin/users/:id', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.id);
+    const result = await withPlatform((client) => client.query(
+      `SELECT u.id, u.full_name, u.email, u.organization_id, o.name AS organization_name,
+              u.role, u.active, u.created_at
+       FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
+       WHERE u.id = $1`,
+      [userId],
+    ));
+    if (!result.rowCount) return res.status(404).json({ error: 'user_not_found' });
+    res.json(result.rows[0]);
+  } catch (error) { next(error); }
+});
+
+app.patch('/v1/admin/users/:id/role', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.id);
+    const input = z.object({
+      role: z.enum(roles),
+      organizationId: z.string().uuid().nullable().optional(),
+    }).parse(req.body);
+    const actorId = req.principal!.userId;
+    const result = await withPlatform(async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock(1180785123)');
+      const target = await client.query(
+        `SELECT id, email, organization_id, role, active FROM users WHERE id = $1 FOR UPDATE`,
+        [userId],
+      );
+      if (!target.rowCount) return { status: 404 as const, error: 'user_not_found' as const };
+      const previous = target.rows[0];
+      if (previous.id === actorId) {
+        await auditAdminUserChange(client, {
+          actorId, targetId: userId, organizationId: previous.organization_id,
+          action: 'role_changed', previousRole: previous.role, newRole: input.role,
+          previousActive: previous.active, newActive: previous.active, outcome: 'rejected',
+        });
+        return { status: 403 as const, error: 'self_role_change_not_allowed' as const };
+      }
+
+      let organizationId: string | null = null;
+      if (input.role === 'platform_admin') {
+        if (input.organizationId) {
+          await auditAdminUserChange(client, {
+            actorId, targetId: userId, organizationId: previous.organization_id,
+            action: 'role_changed', previousRole: previous.role, newRole: input.role,
+            previousActive: previous.active, newActive: previous.active, outcome: 'rejected',
+          });
+          return { status: 400 as const, error: 'platform_admin_must_not_have_organization' as const };
+        }
+      } else {
+        if (!input.organizationId) {
+          await auditAdminUserChange(client, {
+            actorId, targetId: userId, organizationId: previous.organization_id,
+            action: 'role_changed', previousRole: previous.role, newRole: input.role,
+            previousActive: previous.active, newActive: previous.active, outcome: 'rejected',
+          });
+          return { status: 400 as const, error: 'organization_required_for_role' as const };
+        }
+        const organization = await client.query(
+          `SELECT id FROM organizations WHERE id = $1`,
+          [input.organizationId],
+        );
+        if (!organization.rowCount) {
+          await auditAdminUserChange(client, {
+            actorId, targetId: userId, organizationId: previous.organization_id,
+            action: 'role_changed', previousRole: previous.role, newRole: input.role,
+            previousActive: previous.active, newActive: previous.active, outcome: 'rejected',
+          });
+          return { status: 400 as const, error: 'organization_not_found' as const };
+        }
+        organizationId = input.organizationId;
+      }
+
+      if (previous.active && previous.role === 'platform_admin' && input.role !== 'platform_admin') {
+        const activeAdmins = await client.query(
+          `SELECT count(*)::int AS total FROM users WHERE role = 'platform_admin' AND active = true`,
+        );
+        if (activeAdmins.rows[0].total <= 1) {
+          await auditAdminUserChange(client, {
+            actorId, targetId: userId, organizationId: previous.organization_id,
+            action: 'role_changed', previousRole: previous.role, newRole: input.role,
+            previousActive: previous.active, newActive: previous.active, outcome: 'rejected',
+          });
+          return { status: 409 as const, error: 'last_platform_admin_required' as const };
+        }
+      }
+
+      const updated = await client.query(
+        `UPDATE users SET role = $1, organization_id = $2 WHERE id = $3
+         RETURNING id, full_name, email, organization_id, role, active, created_at`,
+        [input.role, organizationId, userId],
+      );
+      const auditOrganizationId = previous.organization_id ?? organizationId;
+      await auditAdminUserChange(client, {
+        actorId, targetId: userId, organizationId: auditOrganizationId,
+        action: 'role_changed', previousRole: previous.role, newRole: input.role,
+        previousActive: previous.active, newActive: previous.active, outcome: 'success',
+      });
+      return { status: 200 as const, user: updated.rows[0] };
+    });
+    if (result.status !== 200) return res.status(result.status).json({ error: result.error });
+    res.json(result.user);
+  } catch (error) { next(error); }
+});
+
+app.patch('/v1/admin/users/:id/status', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.id);
+    const { active } = z.object({ active: z.boolean() }).parse(req.body);
+    const actorId = req.principal!.userId;
+    const result = await withPlatform(async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock(1180785123)');
+      const target = await client.query(
+        `SELECT id, email, organization_id, role, active FROM users WHERE id = $1 FOR UPDATE`,
+        [userId],
+      );
+      if (!target.rowCount) return { status: 404 as const, error: 'user_not_found' as const };
+      const previous = target.rows[0];
+      if (previous.id === actorId) {
+        await auditAdminUserChange(client, {
+          actorId, targetId: userId, organizationId: previous.organization_id,
+          action: 'account_status_changed', previousRole: previous.role, newRole: previous.role,
+          previousActive: previous.active, newActive: active, outcome: 'rejected',
+        });
+        return { status: 403 as const, error: 'self_status_change_not_allowed' as const };
+      }
+      if (previous.active && !active && previous.role === 'platform_admin') {
+        const activeAdmins = await client.query(
+          `SELECT count(*)::int AS total FROM users WHERE role = 'platform_admin' AND active = true`,
+        );
+        if (activeAdmins.rows[0].total <= 1) {
+          await auditAdminUserChange(client, {
+            actorId, targetId: userId, organizationId: previous.organization_id,
+            action: 'account_status_changed', previousRole: previous.role, newRole: previous.role,
+            previousActive: previous.active, newActive: active, outcome: 'rejected',
+          });
+          return { status: 409 as const, error: 'last_platform_admin_required' as const };
+        }
+      }
+      const updated = await client.query(
+        `UPDATE users SET active = $1 WHERE id = $2
+         RETURNING id, full_name, email, organization_id, role, active, created_at`,
+        [active, userId],
+      );
+      await auditAdminUserChange(client, {
+        actorId, targetId: userId, organizationId: previous.organization_id,
+        action: 'account_status_changed', previousRole: previous.role, newRole: previous.role,
+        previousActive: previous.active, newActive: active, outcome: 'success',
+      });
+      return { status: 200 as const, user: updated.rows[0] };
+    });
+    if (result.status !== 200) return res.status(result.status).json({ error: result.error });
+    res.json(result.user);
+  } catch (error) { next(error); }
+});
+
+app.get('/v1/admin/audit-logs', requireSession, requirePlatformAdmin, async (req, res, next) => {
+  try {
+    const query = z.object({
+      page: z.coerce.number().int().min(1).default(1),
+      pageSize: z.coerce.number().int().min(1).max(100).default(25),
+    }).parse(req.query);
+    const offset = (query.page - 1) * query.pageSize;
+    const result = await withPlatform(async (client) => {
+      const [logs, total] = await Promise.all([
+        client.query(
+          `SELECT l.id, l.actor_user_id, actor.email AS actor_email,
+                  l.target_user_id, target.email AS target_email,
+                  l.organization_id, o.name AS organization_name,
+                  l.action, l.previous_role, l.new_role, l.previous_active, l.new_active,
+                  l.outcome, l.created_at
+           FROM admin_user_audit l
+           LEFT JOIN users actor ON actor.id = l.actor_user_id
+           LEFT JOIN users target ON target.id = l.target_user_id
+           LEFT JOIN organizations o ON o.id = l.organization_id
+           ORDER BY l.created_at DESC, l.id DESC LIMIT $1 OFFSET $2`,
+          [query.pageSize, offset],
+        ),
+        client.query(`SELECT count(*)::int AS total FROM admin_user_audit`),
+      ]);
+      return { logs: logs.rows, total: total.rows[0].total };
+    });
+    res.json({ ...result, page: query.page, pageSize: query.pageSize });
   } catch (error) { next(error); }
 });
 
@@ -935,14 +1259,17 @@ const errorHandler: express.ErrorRequestHandler = (error, _req, res, _next) => {
     const details = error.issues.map(({ code, path, message }) => ({ code, path, message }));
     return res.status(400).json({ error: 'validation_error', details });
   }
-  if ((error as { code?: string }).code === '42703') {
+  const databaseError = error as { code?: string; table?: string; column?: string };
+  if (databaseError.code === '42703' || (databaseError.code === '42P01' && databaseError.table === 'admin_user_audit')) {
     console.error(JSON.stringify({
       event: 'DATABASE_SCHEMA_OUTDATED',
       ...postgresErrorFields(error),
     }));
     return res.status(503).json({
       error: 'database_schema_outdated',
-      requiredMigration: '002_admin_api_access.sql',
+      requiredMigration: databaseError.table === 'admin_user_audit' || databaseError.column === 'full_name'
+        ? '003_admin_user_management.sql'
+        : '002_admin_api_access.sql',
     });
   }
   const status = Number((error as { status?: number }).status) || 500;

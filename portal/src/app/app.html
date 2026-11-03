@@ -50,6 +50,8 @@
         @if (registerMode()) {
           <label for="organization-name">Nombre de la organización</label>
           <input id="organization-name" name="organizationName" [(ngModel)]="organizationName" required minlength="2" maxlength="160" autocomplete="organization" />
+          <label for="full-name">Nombre de contacto (opcional)</label>
+          <input id="full-name" name="fullName" [(ngModel)]="fullName" maxlength="120" autocomplete="name" />
         }
         <label for="email">Correo de trabajo</label>
         <input id="email" name="email" type="email" [(ngModel)]="email" required autocomplete="email" />
@@ -195,6 +197,144 @@
         <article class="panel-card admin-table">
           <div class="admin-panel-heading">
             <div>
+              <p class="eyebrow">CUENTAS Y PERMISOS</p>
+              <h3>Gestión de usuarios</h3>
+              <p>Busca por nombre, correo, ID u organización; asigna roles y controla el acceso a las cuentas.</p>
+            </div>
+            <button class="button button-outline" type="button" (click)="searchAdminUsers()" [disabled]="adminUsersLoading()">
+              {{ adminUsersLoading() ? 'Cargando…' : 'Actualizar' }}
+            </button>
+          </div>
+
+          <div class="admin-filters">
+            <input aria-label="Buscar usuarios" placeholder="Nombre, correo, ID u organización" [ngModel]="adminUserSearch()" (ngModelChange)="adminUserSearch.set($event)" (keyup.enter)="searchAdminUsers()" />
+            <button class="button button-outline" type="button" (click)="searchAdminUsers()">Buscar</button>
+            <select aria-label="Filtrar por organización" [ngModel]="adminUserOrganizationFilter()" (ngModelChange)="adminUserOrganizationFilter.set($event); filterAdminUsers()">
+              <option value="">Todas las organizaciones</option>
+              @for (org of organizations(); track org.id) {
+                <option [value]="org.id">{{ org.name }}</option>
+              }
+            </select>
+            <select aria-label="Filtrar por rol" [ngModel]="adminUserRoleFilter()" (ngModelChange)="adminUserRoleFilter.set($event); filterAdminUsers()">
+              <option value="">Todos los roles</option>
+              @for (role of adminRoles(); track role.id) {
+                <option [value]="role.id">{{ role.label }}</option>
+              }
+            </select>
+            <select aria-label="Filtrar por estado" [ngModel]="adminUserActiveFilter()" (ngModelChange)="adminUserActiveFilter.set($event); filterAdminUsers()">
+              <option value="">Todos los estados</option>
+              <option value="true">Activas</option>
+              <option value="false">Deshabilitadas</option>
+            </select>
+          </div>
+
+          @if (adminUsersError()) {
+            <div class="notice notice-error" role="alert">No se pudo consultar la lista de usuarios. Verifica los permisos y actualiza para reintentar.</div>
+          } @else if (adminUsersLoading() && !adminUsers().length) {
+            <div class="empty-state" role="status"><strong>Cargando usuarios…</strong></div>
+          } @else if (adminUsers().length) {
+            <div style="overflow-x: auto">
+              <table class="admin-requests-table">
+                <thead>
+                  <tr><th>Usuario</th><th>Correo electrónico</th><th>Organización</th><th>Rol actual</th><th>Cuenta</th><th>Registro</th><th>Último acceso</th><th>Acciones</th></tr>
+                </thead>
+                <tbody>
+                  @for (user of adminUsers(); track user.id) {
+                    <tr>
+                      <td><strong>{{ user.full_name || user.email }}</strong><small>{{ user.id }}</small></td>
+                      <td>{{ user.email }}</td>
+                      <td>{{ user.organization_name || 'Sin organización' }}</td>
+                      <td>{{ roleLabel(user.role) }}</td>
+                      <td>{{ user.active ? 'Activa' : 'Deshabilitada' }}</td>
+                      <td>{{ user.created_at | date:'short' }}</td>
+                      <td>No registrado</td>
+                      <td>
+                        @if (user.id === organization()?.id) {
+                          <span>Cuenta actual</span>
+                        } @else {
+                          <select [attr.aria-label]="'Rol nuevo para ' + user.email" [name]="'role-' + user.id" [ngModel]="adminUserRoleDrafts()[user.id] ?? user.role" (ngModelChange)="setAdminUserRoleDraft(user, $event)" [disabled]="!adminRoles().length || adminUserMutation()">
+                            @for (role of adminRoles(); track role.id) {
+                              <option [value]="role.id">{{ role.label }}</option>
+                            }
+                          </select>
+                          @if ((adminUserRoleDrafts()[user.id] ?? user.role) !== 'platform_admin') {
+                            <select [attr.aria-label]="'Organización para ' + user.email" [name]="'organization-' + user.id" [ngModel]="adminUserOrganizationDrafts()[user.id] ?? user.organization_id ?? ''" (ngModelChange)="setAdminUserOrganizationDraft(user.id, $event)">
+                              <option value="">Selecciona organización</option>
+                              @for (org of organizations(); track org.id) {
+                                <option [value]="org.id">{{ org.name }}</option>
+                              }
+                            </select>
+                          }
+                          <button class="button button-outline" type="button" (click)="requestAdminRoleChange(user)" [disabled]="adminUserMutation() || adminUsersLoading() || !adminRoles().length">Cambiar rol</button>
+                          <button class="button button-quiet" type="button" (click)="requestAdminStatusChange(user)" [disabled]="adminUserMutation() || adminUsersLoading()">
+                            {{ user.active ? 'Deshabilitar' : 'Activar' }}
+                          </button>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <div class="empty-state"><strong>No se encontraron usuarios</strong><p>Ajusta la búsqueda o los filtros.</p></div>
+          }
+          <div class="admin-panel-heading">
+            <span>{{ adminUsersTotal() }} usuarios · Página {{ adminUsersPage() }} de {{ adminUsersLastPage() }}</span>
+            <div>
+              <button class="button button-quiet" type="button" (click)="changeAdminUsersPage(adminUsersPage() - 1)" [disabled]="adminUsersPage() <= 1 || adminUsersLoading()">Anterior</button>
+              <button class="button button-quiet" type="button" (click)="changeAdminUsersPage(adminUsersPage() + 1)" [disabled]="adminUsersPage() * adminUsersPageSize >= adminUsersTotal() || adminUsersLoading()">Siguiente</button>
+            </div>
+          </div>
+          <details>
+            <summary>Alcance de los roles</summary>
+            @for (role of adminRoles(); track role.id) {
+              <p><strong>{{ role.label }}:</strong> {{ role.scope }}</p>
+            }
+          </details>
+        </article>
+
+        <article class="panel-card admin-table">
+          <div class="admin-panel-heading">
+            <div><p class="eyebrow">TRAZABILIDAD</p><h3>Historial de cambios de usuarios</h3></div>
+          </div>
+          @if (adminAuditError()) {
+            <div class="notice notice-error" role="alert">No se pudo consultar el historial de auditoría.</div>
+          } @else if (adminAuditLoading() && !adminAuditLogs().length) {
+            <div class="empty-state" role="status"><strong>Cargando historial…</strong></div>
+          } @else if (adminAuditLogs().length) {
+            <div style="overflow-x: auto">
+              <table class="admin-requests-table">
+                <thead><tr><th>Fecha</th><th>Administrador</th><th>Usuario afectado</th><th>Acción</th><th>Cambio</th><th>Resultado</th></tr></thead>
+                <tbody>
+                  @for (entry of adminAuditLogs(); track entry.id) {
+                    <tr>
+                      <td>{{ entry.created_at | date:'short' }}</td>
+                      <td>{{ entry.actor_email || entry.actor_user_id }}</td>
+                      <td>{{ entry.target_email || entry.target_user_id }}</td>
+                      <td>{{ entry.action === 'role_changed' ? 'Cambio de rol' : 'Estado de cuenta' }}</td>
+                      <td>{{ roleLabel(entry.previous_role) }} → {{ roleLabel(entry.new_role) }} · {{ entry.previous_active ? 'Activa' : 'Deshabilitada' }} → {{ entry.new_active ? 'Activa' : 'Deshabilitada' }}</td>
+                      <td>{{ entry.outcome === 'success' ? 'Completado' : 'Rechazado' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <div class="empty-state"><strong>Aún no hay cambios de usuarios</strong></div>
+          }
+          <div class="admin-panel-heading">
+            <span>{{ adminAuditTotal() }} eventos · Página {{ adminAuditPage() }} de {{ adminAuditLastPage() }}</span>
+            <div>
+              <button class="button button-quiet" type="button" (click)="changeAdminAuditPage(adminAuditPage() - 1)" [disabled]="adminAuditPage() <= 1 || adminAuditLoading()">Anterior</button>
+              <button class="button button-quiet" type="button" (click)="changeAdminAuditPage(adminAuditPage() + 1)" [disabled]="adminAuditPage() * adminUsersPageSize >= adminAuditTotal() || adminAuditLoading()">Siguiente</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel-card admin-table">
+          <div class="admin-panel-heading">
+            <div>
               <p class="eyebrow">TRÁFICO DEL API</p>
               <h3>Últimas solicitudes de integración</h3>
               <p>Hasta 50 solicitudes registradas con una API key válida. El origen corresponde al dominio enviado por el navegador.</p>
@@ -301,9 +441,15 @@
           }
           @if (createdKey()) {
             <div class="key-reveal">
-              <strong>Tu API key de Sandbox (visible una sola vez):</strong>
-              <code>{{ createdKey() }}</code>
-              <button class="text-button" type="button" (click)="hideKey()">Ocultar clave</button>
+              <strong>Tu API key de Sandbox (disponible solo durante esta sesión):</strong>
+              <code>{{ isKeyVisible() ? createdKey() : '••••••••••••••••' }}</code>
+              <button
+                class="text-button"
+                type="button"
+                (click)="toggleKeyVisibility()"
+                [attr.aria-pressed]="isKeyVisible()"
+              >{{ isKeyVisible() ? 'Ocultar clave' : 'Mostrar clave' }}</button>
+              <small>Al cerrar sesión o recargar la página, ya no podrás volver a verla.</small>
             </div>
           }
         </article>
@@ -335,6 +481,46 @@
       </div>
     </section>
     }
+  }
+
+  @if (pendingRoleChange(); as change) {
+    <div role="dialog" aria-modal="true" aria-labelledby="role-change-title" class="panel-card" style="position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:10;width:min(560px,calc(100vw - 32px));box-shadow:0 0 0 100vmax rgba(0,0,0,.72)">
+      <p class="eyebrow">CONFIRMAR CAMBIO DE PERMISOS</p>
+      <h2 id="role-change-title">¿Cambiar rol de {{ change.user.email }}?</h2>
+      <p>Rol actual: <strong>{{ roleLabel(change.user.role) }}</strong></p>
+      <p>Nuevo rol: <strong>{{ roleLabel(change.role) }}</strong></p>
+      <p>{{ roleScope(change.role) }}</p>
+      @if (change.role === 'platform_admin') {
+        <p>Esta acción desvinculará a la persona de {{ change.user.organization_name || 'su organización actual' }} y concederá acceso global de administración.</p>
+      } @else if (change.user.role === 'platform_admin') {
+        <p>El administrador global perderá el acceso al panel global y quedará asociado a {{ adminOrganizationName(change.organizationId) }}.</p>
+      } @else if (change.organizationId !== change.user.organization_id) {
+        <p>La cuenta también se moverá a {{ adminOrganizationName(change.organizationId) }}.</p>
+      }
+      <div class="admin-actions">
+        <button class="button button-quiet" type="button" (click)="cancelAdminUserChange()" [disabled]="adminUserMutation()">Cancelar</button>
+        <button class="button button-primary" type="button" (click)="confirmAdminRoleChange()" [disabled]="adminUserMutation() || !change.organizationId && change.role !== 'platform_admin'">
+          {{ adminUserMutation() ? 'Guardando…' : 'Confirmar cambio' }}
+        </button>
+      </div>
+    </div>
+  }
+
+  @if (pendingStatusChange(); as change) {
+    <div role="dialog" aria-modal="true" aria-labelledby="status-change-title" class="panel-card" style="position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:10;width:min(560px,calc(100vw - 32px));box-shadow:0 0 0 100vmax rgba(0,0,0,.72)">
+      <p class="eyebrow">CONFIRMAR ESTADO DE CUENTA</p>
+      <h2 id="status-change-title">{{ change.active ? '¿Activar' : '¿Deshabilitar' }} a {{ change.user.email }}?</h2>
+      <p>La cuenta pasará de <strong>{{ change.user.active ? 'Activa' : 'Deshabilitada' }}</strong> a <strong>{{ change.active ? 'Activa' : 'Deshabilitada' }}</strong>.</p>
+      @if (change.user.role === 'platform_admin' && !change.active) {
+        <p>No se puede deshabilitar al último administrador de plataforma activo.</p>
+      }
+      <div class="admin-actions">
+        <button class="button button-quiet" type="button" (click)="cancelAdminUserChange()" [disabled]="adminUserMutation()">Cancelar</button>
+        <button class="button button-primary" type="button" (click)="confirmAdminStatusChange()" [disabled]="adminUserMutation()">
+          {{ adminUserMutation() ? 'Guardando…' : 'Confirmar cambio' }}
+        </button>
+      </div>
+    </div>
   }
 
   <footer class="footer">

@@ -23,7 +23,7 @@ Esta primera entrega proporciona una base ejecutable, enfocada en **Sandbox**:
 
 ## Desarrollo local
 
-1. Crear una base de datos en Neon y ejecutar, en orden, `api/migrations/001_initial.sql` y `api/migrations/002_admin_api_access.sql` desde una conexión administrativa. La segunda migración agrega permisos explícitos de API por organización y aplicación; a los registros existentes les conserva el acceso que ya tenían.
+1. Crear una base de datos en Neon y ejecutar, en orden, `api/migrations/001_initial.sql`, `api/migrations/002_admin_api_access.sql` y `api/migrations/003_admin_user_management.sql` desde una conexión administrativa. La segunda agrega permisos por organización/aplicación y conserva accesos existentes; la tercera agrega el nombre opcional del usuario y auditoría de roles/cuentas.
 2. Copiar `api/.env.example` a `api/.env` y configurar `DATABASE_URL`, `SESSION_SECRET` (mínimo 32 caracteres), `PORTAL_ORIGIN`, `API_ORIGIN` y `NODE_ENV`. Para desarrollo local usa `NODE_ENV=development`, `PORTAL_ORIGIN=http://localhost:4200` y `API_ORIGIN=http://localhost:3000`; el API permite esos dos orígenes localhost en modo no productivo. No subir `.env`.
 3. Instalar las dependencias del backend y del portal:
 
@@ -59,12 +59,12 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 
 ## Despliegue
 
-- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL` y aplicar `002_admin_api_access.sql` en Neon antes de desplegar una versión que dependa de `api_enabled`. La instancia actual confirma `database_schema_outdated` en `/health/ready`, que explica el 503: el esquema de Neon aún no tiene esas columnas. El API no ejecuta DDL automáticamente en producción. Después de aplicar la migración, vuelve a desplegar/reiniciar el servicio; `/health/ready` responderá 200 cuando el esquema esté disponible. Render ofrece una URL `*.onrender.com` sin configurar un dominio propio.
+- **API:** configurar el servicio web Render desde `render.yaml`; cargar `DATABASE_URL` y aplicar las migraciones 002 y 003 en Neon antes de desplegar el API nuevo. `/health/ready` valida columnas y tabla de auditoría; el servicio no ejecuta DDL automáticamente en producción. Render ofrece una URL `*.onrender.com` sin configurar un dominio propio.
 - **Portal:** ejecutar `npm --prefix portal run build` y desplegar `portal/dist/portal/browser` en Firebase Hosting. Firebase proporciona automáticamente una URL `*.web.app`; no hace falta asociar un dominio propio.
 
 ## Seguridad / operación
 
-- Las API keys se generan con aleatoriedad criptográfica, se almacena solo SHA-256 del valor completo y se entregan una sola vez. No ponerlas en JavaScript público, URL, repositorios ni logs.
+- Las API keys se generan con aleatoriedad criptográfica y solo se almacena SHA-256 de su valor completo. El secreto se entrega al crearlo y el portal permite mostrarlo u ocultarlo mientras dure la sesión actual; no se puede recuperar del servidor después de cerrar sesión o recargar. No ponerlas en JavaScript público, URL, repositorios ni logs.
 - Una API key identifica la aplicación; no autentica a personas. Las operaciones bancarias deben usar el flujo de identidad del banco.
 - El acceso de Sandbox requiere que la organización esté activa y que el administrador haya habilitado el acceso API tanto para la organización como para la aplicación. Las claves creadas antes de aplicar la migración conservan el acceso de su organización activa y aplicación existente.
 - Las API keys son credenciales de servidor. No invocar `POST /v1/integrations/ping` desde JavaScript de terceros ni incluir una clave en el widget.
@@ -81,7 +81,11 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 - `GET /v1/applications/{id}/keys`, `POST /v1/applications/{id}/keys`, `DELETE /v1/applications/{applicationId}/keys/{keyId}` — administrar claves.
 - `POST /v1/integrations/ping` — validar identificación de aplicación en Sandbox.
 - `GET /v1/admin/organizations`, `POST /v1/admin/organizations/{id}/decision` — consulta y aprobación/suspensión de organizaciones.
+- `GET /v1/admin/users`, `GET /v1/admin/users/{id}`, `GET /v1/admin/roles`, `GET /v1/admin/audit-logs` — buscar/filtrar usuarios y consultar los roles e historial (solo platform_admin).
+- `PATCH /v1/admin/users/{id}/role`, `PATCH /v1/admin/users/{id}/status` — asignar rol/organización y activar/desactivar cuentas desde el panel, con confirmación y protección del último administrador activo.
 - `POST /v1/admin/organizations/{id}/api-access`, `GET /v1/admin/organizations/{id}/applications`, `POST /v1/admin/applications/{id}/api-access`, `DELETE /v1/admin/organizations/{organizationId}/applications/{applicationId}/keys/{keyId}` — habilitar/deshabilitar acceso al API por organización o aplicación, consultar metadatos de claves y revocarlas desde el panel de administración. Nunca se muestran secretos de claves.
 - `GET /v1/admin/usage/summary` — resumen global y últimas 50 solicitudes a `/v1/integrations/ping` autenticadas con una clave vigente, incluyendo resultados bloqueados por estado de organización o permisos API. Las claves inválidas no se asocian a registros; el dominio de origen no incluye una ruta de página.
+
+El esquema no registraba un nombre personal ni último acceso. El nombre ahora es opcional al registrar nuevas cuentas y se puede buscar; las cuentas antiguas muestran el correo como nombre alternativo. El último acceso se muestra como “No registrado” y no se inventa una fecha. La primera cuenta `platform_admin` continúa siendo un bootstrap operativo manual tras verificar identidad; después de aplicar 003, los administradores existentes pueden conceder roles desde el panel.
 - `GET /docs`, `GET /openapi.json` — documentación interactiva y especificación.
 - `GET /health/live`, `GET /health/ready` — comprobaciones operativas.

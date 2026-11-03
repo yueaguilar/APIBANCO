@@ -24,6 +24,48 @@ interface AdminOrganization {
   application_count: number;
 }
 
+type AdminRoleId = 'org_owner' | 'org_admin' | 'org_member' | 'platform_admin';
+
+interface AdminRole {
+  id: AdminRoleId;
+  label: string;
+  scope: string;
+}
+
+interface AdminUser {
+  id: string;
+  full_name: string | null;
+  email: string;
+  organization_id: string | null;
+  organization_name: string | null;
+  role: AdminRoleId;
+  active: boolean;
+  created_at: string;
+}
+
+interface AdminUserAudit {
+  id: number;
+  actor_user_id: string;
+  actor_email: string | null;
+  target_user_id: string;
+  target_email: string | null;
+  organization_id: string | null;
+  organization_name: string | null;
+  action: 'role_changed' | 'account_status_changed';
+  previous_role: AdminRoleId;
+  new_role: AdminRoleId;
+  previous_active: boolean;
+  new_active: boolean;
+  outcome: 'success' | 'rejected';
+  created_at: string;
+}
+
+interface PendingRoleChange {
+  user: AdminUser;
+  role: AdminRoleId;
+  organizationId: string | null;
+}
+
 type OrganizationFilter = 'pending' | 'all' | 'active' | 'rejected' | 'suspended';
 
 interface Application {
@@ -90,6 +132,33 @@ export class App {
   protected readonly adminApplicationsLoading = signal<string | null>(null);
   protected readonly adminApplicationsError = signal<string | null>(null);
   protected readonly adminAction = signal<string | null>(null);
+  protected readonly adminRoles = signal<AdminRole[]>([]);
+  protected readonly adminUsers = signal<AdminUser[]>([]);
+  protected readonly adminUsersTotal = signal(0);
+  protected readonly adminUsersPage = signal(1);
+  protected readonly adminUsersPageSize = 25;
+  protected readonly adminUsersLastPage = computed(
+    () => Math.max(1, Math.ceil(this.adminUsersTotal() / this.adminUsersPageSize)),
+  );
+  protected readonly adminUsersLoading = signal(false);
+  protected readonly adminUsersError = signal(false);
+  protected readonly adminUserSearch = signal('');
+  protected readonly adminUserRoleFilter = signal('');
+  protected readonly adminUserOrganizationFilter = signal('');
+  protected readonly adminUserActiveFilter = signal('');
+  protected readonly adminUserRoleDrafts = signal<Record<string, AdminRoleId>>({});
+  protected readonly adminUserOrganizationDrafts = signal<Record<string, string>>({});
+  protected readonly pendingRoleChange = signal<PendingRoleChange | null>(null);
+  protected readonly pendingStatusChange = signal<{ user: AdminUser; active: boolean } | null>(null);
+  protected readonly adminUserMutation = signal(false);
+  protected readonly adminAuditLogs = signal<AdminUserAudit[]>([]);
+  protected readonly adminAuditTotal = signal(0);
+  protected readonly adminAuditPage = signal(1);
+  protected readonly adminAuditLastPage = computed(
+    () => Math.max(1, Math.ceil(this.adminAuditTotal() / this.adminUsersPageSize)),
+  );
+  protected readonly adminAuditLoading = signal(false);
+  protected readonly adminAuditError = signal(false);
   protected readonly organizationFilter = signal<OrganizationFilter>('pending');
   protected readonly filteredOrganizations = computed(() => {
     const filter = this.organizationFilter();
@@ -116,11 +185,15 @@ export class App {
   protected readonly loading = signal(false);
   protected readonly registerMode = signal(false);
   protected readonly createdKey = signal('');
+  protected readonly isKeyVisible = signal(false);
   private readonly destroyRef = inject(DestroyRef);
   private adminRefreshStarted = false;
+  private adminUsersRequestId = 0;
+  private adminAuditRequestId = 0;
   protected email = '';
   protected password = '';
   protected organizationName = '';
+  protected fullName = '';
   protected applicationName = '';
 
   constructor() {
@@ -156,11 +229,12 @@ export class App {
     if (this.registerMode()) {
       this.http.post<{ organizationId: string; status: string }>(
         `${apiBase}/v1/organizations`,
-        { organizationName: this.organizationName, email: this.email, password: this.password },
+        { organizationName: this.organizationName, fullName: this.fullName, email: this.email, password: this.password },
         { withCredentials: true },
       ).subscribe({
         next: () => {
           this.password = '';
+          this.fullName = '';
           this.message.set('Registro recibido. La organización debe completar la verificación y aprobación antes de activar integraciones.');
           this.registerMode.set(false);
           this.loading.set(false);
@@ -209,11 +283,13 @@ export class App {
   protected createKey(application: Application) {
     this.error.set('');
     this.createdKey.set('');
+    this.isKeyVisible.set(false);
     this.http.post<{ key: string }>(`${apiBase}/v1/applications/${application.id}/keys`, {}, { withCredentials: true }).subscribe({
       next: (result) => {
         this.createdKey.set(result.key);
+        this.isKeyVisible.set(true);
         this.loadKeys(application);
-        this.message.set('La clave solo se muestra ahora. Cópiala a un gestor de secretos; no la insertes en JavaScript público.');
+        this.message.set('Puedes mostrar u ocultar la clave durante esta sesión. Cópiala a un gestor de secretos; no la insertes en JavaScript público.');
       },
       error: (error: HttpErrorResponse) => this.showError(error),
     });
@@ -233,19 +309,30 @@ export class App {
         this.adminApplicationsLoading.set(null);
         this.adminApplicationsError.set(null);
         this.adminAction.set(null);
+        this.adminUsers.set([]);
+        this.adminUsersTotal.set(0);
+        this.adminUsersPage.set(1);
+        this.adminUsersError.set(false);
+        this.adminRoles.set([]);
+        this.adminAuditLogs.set([]);
+        this.adminAuditTotal.set(0);
+        this.adminAuditError.set(false);
+        this.pendingRoleChange.set(null);
+        this.pendingStatusChange.set(null);
         this.adminOrganizationsLoaded.set(false);
         this.adminOrganizationsError.set(false);
         this.adminRequests.set([]);
         this.adminUsageError.set(false);
         this.usage.set(null);
         this.createdKey.set('');
+        this.isKeyVisible.set(false);
       },
       error: (error: HttpErrorResponse) => this.showError(error),
     });
   }
 
-  protected hideKey() {
-    this.createdKey.set('');
+  protected toggleKeyVisibility() {
+    this.isKeyVisible.update((visible) => !visible);
   }
 
   private loadApplications() {
@@ -379,8 +466,126 @@ export class App {
   protected refreshAdminData() {
     this.loadAdminOrganizations();
     this.loadAdminUsage();
+    this.loadAdminUsers();
+    this.loadAdminAuditLogs();
     const expandedOrganizationId = this.expandedAdminOrganizationId();
     if (expandedOrganizationId) this.loadAdminApplications(expandedOrganizationId);
+  }
+
+  protected searchAdminUsers() {
+    this.adminUsersPage.set(1);
+    this.loadAdminUsers(1);
+  }
+
+  protected filterAdminUsers() {
+    this.adminUsersPage.set(1);
+    this.loadAdminUsers(1);
+  }
+
+  protected changeAdminUsersPage(page: number) {
+    if (page < 1 || page > this.adminUsersLastPage()) return;
+    this.loadAdminUsers(page);
+  }
+
+  protected changeAdminAuditPage(page: number) {
+    if (page < 1 || page > this.adminAuditLastPage()) return;
+    this.loadAdminAuditLogs(page);
+  }
+
+  protected roleLabel(role: AdminRoleId) {
+    return this.adminRoles().find((item) => item.id === role)?.label ?? role;
+  }
+
+  protected roleScope(role: AdminRoleId) {
+    return this.adminRoles().find((item) => item.id === role)?.scope ?? '';
+  }
+
+  protected adminOrganizationName(organizationId: string | null) {
+    return this.organizations().find((item) => item.id === organizationId)?.name ?? 'la organización seleccionada';
+  }
+
+  protected setAdminUserRoleDraft(user: AdminUser, role: AdminRoleId) {
+    this.adminUserRoleDrafts.update((drafts) => ({ ...drafts, [user.id]: role }));
+    if (role === 'platform_admin') {
+      this.adminUserOrganizationDrafts.update((drafts) => ({ ...drafts, [user.id]: '' }));
+    } else if (!this.adminUserOrganizationDrafts()[user.id]) {
+      this.adminUserOrganizationDrafts.update((drafts) => ({
+        ...drafts,
+        [user.id]: user.organization_id ?? this.organizations()[0]?.id ?? '',
+      }));
+    }
+  }
+
+  protected setAdminUserOrganizationDraft(userId: string, organizationId: string) {
+    this.adminUserOrganizationDrafts.update((drafts) => ({ ...drafts, [userId]: organizationId }));
+  }
+
+  protected requestAdminRoleChange(user: AdminUser) {
+    const role = this.adminUserRoleDrafts()[user.id] ?? user.role;
+    const organizationId = role === 'platform_admin'
+      ? null
+      : (this.adminUserOrganizationDrafts()[user.id] || user.organization_id);
+    if (role === user.role && organizationId === user.organization_id) return;
+    this.pendingRoleChange.set({ user, role, organizationId });
+  }
+
+  protected requestAdminStatusChange(user: AdminUser) {
+    this.pendingStatusChange.set({ user, active: !user.active });
+  }
+
+  protected cancelAdminUserChange() {
+    this.pendingRoleChange.set(null);
+    this.pendingStatusChange.set(null);
+  }
+
+  protected confirmAdminRoleChange() {
+    const change = this.pendingRoleChange();
+    if (!change || this.adminUserMutation()) return;
+    this.adminUserMutation.set(true);
+    this.error.set('');
+    this.message.set('');
+    this.http.patch<AdminUser>(
+      `${apiBase}/v1/admin/users/${change.user.id}/role`,
+      { role: change.role, organizationId: change.organizationId },
+      { withCredentials: true },
+    ).subscribe({
+      next: (updated) => {
+        this.adminUserMutation.set(false);
+        this.pendingRoleChange.set(null);
+        this.message.set(`Rol de ${updated.email} actualizado correctamente.`);
+        this.loadAdminUsers();
+        this.loadAdminAuditLogs(1);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.adminUserMutation.set(false);
+        this.showError(error);
+      },
+    });
+  }
+
+  protected confirmAdminStatusChange() {
+    const change = this.pendingStatusChange();
+    if (!change || this.adminUserMutation()) return;
+    this.adminUserMutation.set(true);
+    this.error.set('');
+    this.message.set('');
+    this.http.patch<AdminUser>(
+      `${apiBase}/v1/admin/users/${change.user.id}/status`,
+      { active: change.active },
+      { withCredentials: true },
+    ).subscribe({
+      next: (updated) => {
+        this.adminUserMutation.set(false);
+        this.pendingStatusChange.set(null);
+        this.message.set(`La cuenta de ${updated.email} se ${updated.active ? 'activó' : 'desactivó'} correctamente.`);
+        this.loadAdminUsers();
+        this.loadAdminAuditLogs(1);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.adminUserMutation.set(false);
+        this.showError(error);
+      },
+    });
   }
 
   private loadUsage() {
@@ -393,6 +598,83 @@ export class App {
   private loadAdminData() {
     this.loadAdminOrganizations();
     this.loadAdminUsage();
+    this.loadAdminRoles();
+    this.loadAdminUsers(1);
+    this.loadAdminAuditLogs(1);
+  }
+
+  private loadAdminRoles() {
+    this.http.get<{ roles: AdminRole[] }>(`${apiBase}/v1/admin/roles`, { withCredentials: true }).subscribe({
+      next: (result) => this.adminRoles.set(result.roles),
+      error: (error: HttpErrorResponse) => this.showError(error),
+    });
+  }
+
+  private loadAdminUsers(page = this.adminUsersPage()) {
+    const requestId = ++this.adminUsersRequestId;
+    this.adminUsersLoading.set(true);
+    this.adminUsersError.set(false);
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(this.adminUsersPageSize),
+    });
+    const search = this.adminUserSearch().trim();
+    if (search) params.set('search', search);
+    if (this.adminUserRoleFilter()) params.set('role', this.adminUserRoleFilter());
+    if (this.adminUserOrganizationFilter()) params.set('organizationId', this.adminUserOrganizationFilter());
+    if (this.adminUserActiveFilter()) params.set('active', this.adminUserActiveFilter());
+    this.http.get<{ users: AdminUser[]; total: number; page: number }>(
+      `${apiBase}/v1/admin/users?${params.toString()}`,
+      { withCredentials: true },
+    ).subscribe({
+      next: (result) => {
+        if (requestId !== this.adminUsersRequestId) return;
+        const lastPage = Math.max(1, Math.ceil(result.total / this.adminUsersPageSize));
+        if (page > lastPage) {
+          this.adminUsersLoading.set(false);
+          this.loadAdminUsers(lastPage);
+          return;
+        }
+        this.adminUsers.set(result.users);
+        this.adminUsersTotal.set(result.total);
+        this.adminUsersPage.set(result.page);
+        this.adminUsersLoading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        if (requestId !== this.adminUsersRequestId) return;
+        this.adminUsersError.set(true);
+        this.adminUsersLoading.set(false);
+        this.showError(error);
+      },
+    });
+  }
+
+  private loadAdminAuditLogs(page = this.adminAuditPage()) {
+    const requestId = ++this.adminAuditRequestId;
+    this.adminAuditLoading.set(true);
+    this.adminAuditError.set(false);
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(this.adminUsersPageSize),
+    });
+    this.http.get<{ logs: AdminUserAudit[]; total: number; page: number }>(
+      `${apiBase}/v1/admin/audit-logs?${params.toString()}`,
+      { withCredentials: true },
+    ).subscribe({
+      next: (result) => {
+        if (requestId !== this.adminAuditRequestId) return;
+        this.adminAuditLogs.set(result.logs);
+        this.adminAuditTotal.set(result.total);
+        this.adminAuditPage.set(result.page);
+        this.adminAuditLoading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        if (requestId !== this.adminAuditRequestId) return;
+        this.adminAuditError.set(true);
+        this.adminAuditLoading.set(false);
+        this.showError(error);
+      },
+    });
   }
 
   private loadAdminUsage() {
@@ -476,6 +758,12 @@ export class App {
       email_already_registered: 'Ese correo ya tiene una cuenta.',
       api_access_disabled: 'El administrador todavía no ha habilitado el acceso API para esta organización o aplicación.',
       database_schema_outdated: 'El servicio requiere actualizar la base de datos. El administrador debe aplicar la migración 002_admin_api_access.sql y volver a intentar.',
+      self_role_change_not_allowed: 'No puedes modificar tu propio rol.',
+      self_status_change_not_allowed: 'No puedes cambiar el estado de tu propia cuenta.',
+      last_platform_admin_required: 'No se puede completar la operación: debe existir al menos un administrador de plataforma activo.',
+      organization_required_for_role: 'Selecciona una organización para asignar este rol.',
+      organization_not_found: 'La organización seleccionada no existe.',
+      platform_admin_must_not_have_organization: 'Un administrador de plataforma no puede estar asociado a una organización.',
     };
     if (error.status === 0 && location.hostname === 'localhost') {
       this.error.set('No se pudo conectar con el API local en http://localhost:3000. Verifica api/.env y arranca la API con npm run api:dev.');
