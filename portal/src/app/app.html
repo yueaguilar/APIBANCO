@@ -233,10 +233,10 @@
           } @else if (adminUsersLoading() && !adminUsers().length) {
             <div class="empty-state" role="status"><strong>Cargando usuarios…</strong></div>
           } @else if (adminUsers().length) {
-            <div style="overflow-x: auto">
-              <table class="admin-requests-table">
+            <div class="admin-users-table-wrap">
+              <table class="admin-requests-table admin-users-table">
                 <thead>
-                  <tr><th>Usuario</th><th>Correo electrónico</th><th>Organización</th><th>Rol actual</th><th>Cuenta</th><th>Registro</th><th>Último acceso</th><th>Acciones</th></tr>
+                  <tr><th>Usuario</th><th>Correo electrónico</th><th>Organización</th><th>Rol actual</th><th>Cuenta</th><th>Actividad</th><th>Acciones</th></tr>
                 </thead>
                 <tbody>
                   @for (user of adminUsers(); track user.id) {
@@ -246,29 +246,32 @@
                       <td>{{ user.organization_name || 'Sin organización' }}</td>
                       <td>{{ roleLabel(user.role) }}</td>
                       <td>{{ user.active ? 'Activa' : 'Deshabilitada' }}</td>
-                      <td>{{ user.created_at | date:'short' }}</td>
-                      <td>No registrado</td>
-                      <td>
+                      <td class="admin-user-activity"><span>Registro <strong>{{ user.created_at | date:'short' }}</strong></span><span>Acceso <strong>No registrado</strong></span></td>
+                      <td class="admin-user-actions-cell">
                         @if (user.id === organization()?.id) {
-                          <span>Cuenta actual</span>
+                          <span class="admin-current-account">Cuenta actual</span>
                         } @else {
-                          <select [attr.aria-label]="'Rol nuevo para ' + user.email" [name]="'role-' + user.id" [ngModel]="adminUserRoleDrafts()[user.id] ?? user.role" (ngModelChange)="setAdminUserRoleDraft(user, $event)" [disabled]="!adminRoles().length || adminUserMutation()">
-                            @for (role of adminRoles(); track role.id) {
-                              <option [value]="role.id">{{ role.label }}</option>
-                            }
-                          </select>
-                          @if ((adminUserRoleDrafts()[user.id] ?? user.role) !== 'platform_admin') {
-                            <select [attr.aria-label]="'Organización para ' + user.email" [name]="'organization-' + user.id" [ngModel]="adminUserOrganizationDrafts()[user.id] ?? user.organization_id ?? ''" (ngModelChange)="setAdminUserOrganizationDraft(user.id, $event)">
-                              <option value="">Selecciona organización</option>
-                              @for (org of organizations(); track org.id) {
-                                <option [value]="org.id">{{ org.name }}</option>
+                          <div class="admin-user-actions">
+                            <select [attr.aria-label]="'Rol nuevo para ' + user.email" [name]="'role-' + user.id" [ngModel]="adminUserRoleDrafts()[user.id] ?? user.role" (ngModelChange)="setAdminUserRoleDraft(user, $event)" [disabled]="!adminRoles().length || adminUserMutation()">
+                              @for (role of adminRoles(); track role.id) {
+                                <option [value]="role.id">{{ role.label }}</option>
                               }
                             </select>
-                          }
-                          <button class="button button-outline" type="button" (click)="requestAdminRoleChange(user)" [disabled]="adminUserMutation() || adminUsersLoading() || !adminRoles().length">Cambiar rol</button>
-                          <button class="button button-quiet" type="button" (click)="requestAdminStatusChange(user)" [disabled]="adminUserMutation() || adminUsersLoading()">
-                            {{ user.active ? 'Deshabilitar' : 'Activar' }}
-                          </button>
+                            @if ((adminUserRoleDrafts()[user.id] ?? user.role) !== 'platform_admin') {
+                              <select [attr.aria-label]="'Organización para ' + user.email" [name]="'organization-' + user.id" [ngModel]="adminUserOrganizationDrafts()[user.id] ?? user.organization_id ?? ''" (ngModelChange)="setAdminUserOrganizationDraft(user.id, $event)">
+                                <option value="">Selecciona organización</option>
+                                @for (org of organizations(); track org.id) {
+                                  <option [value]="org.id">{{ org.name }}</option>
+                                }
+                              </select>
+                            }
+                            <div class="admin-user-action-buttons">
+                              <button class="button button-outline" type="button" (click)="requestAdminRoleChange(user)" [disabled]="adminUserMutation() || adminUsersLoading() || !adminRoles().length">Cambiar rol</button>
+                              <button class="button button-quiet" type="button" (click)="requestAdminStatusChange(user)" [disabled]="adminUserMutation() || adminUsersLoading()">
+                                {{ user.active ? 'Deshabilitar' : 'Activar' }}
+                              </button>
+                            </div>
+                          </div>
                         }
                       </td>
                     </tr>
