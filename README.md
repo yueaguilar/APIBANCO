@@ -75,39 +75,51 @@ El cambio de rol solo debe ejecutarse tras comprobar la identidad por un canal i
 
 ## Consultas administrativas desde PowerShell
 
-Usa una sesión recién emitida y vigente para una cuenta activa `platform_admin`. No pegues el JWT en el script, en el historial del terminal ni en el repositorio. El siguiente ejemplo solicita el valor como entrada segura y usa la misma cookie `bk_session` para ambas consultas:
+Usa una cuenta activa `platform_admin`. No copies el JWT: inicia sesión en el endpoint oficial y deja que PowerShell conserve la cookie `HttpOnly` en una única sesión web. El ejemplo solicita la contraseña como entrada segura y comprueba el rol antes de consultar las rutas administrativas:
 
 ```powershell
-$apiUri = [Uri]'https://apibanco-4ytc.onrender.com'
 $portalOrigin = 'https://apibanco-e3112.web.app'
-$secureToken = Read-Host 'JWT vigente de bk_session' -AsSecureString
-$tokenPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-try {
-   $jwt = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($tokenPointer)
-}
-finally {
-   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($tokenPointer)
-}
-
-$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-$cookie = [System.Net.Cookie]::new('bk_session', $jwt, '/', $apiUri.Host)
-$cookie.HttpOnly = $true
-$cookie.Secure = $true
-$session.Cookies.Add($apiUri, $cookie)
-$jwt = $null
-$secureToken.Dispose()
-
 $headers = @{
    Accept = 'application/json'
    Origin = $portalOrigin
    Referer = "$portalOrigin/"
 }
 
-$auditLogs = Invoke-RestMethod `
+$email = Read-Host 'Correo del administrador'
+$securePassword = Read-Host 'Contrasena' -AsSecureString
+$passwordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+try {
+   $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($passwordPointer)
+}
+finally {
+   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passwordPointer)
+}
+
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+try {
+   $loginBody = @{ email = $email; password = $password } | ConvertTo-Json
+   Invoke-RestMethod `
+      -Method Post `
+      -Uri 'https://apibanco-4ytc.onrender.com/v1/auth/login' `
+      -Headers $headers `
+      -ContentType 'application/json' `
+      -Body $loginBody `
+      -WebSession $session | Out-Null
+}
+finally {
+   $password = $null
+   $loginBody = $null
+   $securePassword.Dispose()
+}
+
+$me = Invoke-RestMethod `
    -Method Get `
-   -Uri 'https://apibanco-4ytc.onrender.com/v1/admin/audit-logs?page=1&pageSize=25' `
+   -Uri 'https://apibanco-4ytc.onrender.com/v1/me' `
    -Headers $headers `
    -WebSession $session
+if ($me.role -ne 'platform_admin') {
+   throw "Acceso denegado: el usuario autenticado no tiene rol platform_admin (rol actual: $($me.role))."
+}
 
 $users = Invoke-RestMethod `
    -Method Get `
@@ -115,15 +127,22 @@ $users = Invoke-RestMethod `
    -Headers $headers `
    -WebSession $session
 
+$auditLogs = Invoke-RestMethod `
+   -Method Get `
+   -Uri 'https://apibanco-4ytc.onrender.com/v1/admin/audit-logs?page=1&pageSize=25' `
+   -Headers $headers `
+   -WebSession $session
+
+$me
 $auditLogs
 $users
 ```
 
-La cookie de la prueba queda limitada al host `apibanco-4ytc.onrender.com` y a la ruta `/`. En producción el servidor la emite como `HttpOnly`, `Secure`, `SameSite=None` y sin atributo `Domain` (cookie host-only); el ejemplo fija el dominio al host de la API para la solicitud manual. El backend verifica que el usuario siga activo y tenga rol `platform_admin`; un JWT válido no concede ese rol por sí mismo.
+El login establece `bk_session` para `apibanco-4ytc.onrender.com` con ruta `/`; en producción la cookie es `HttpOnly`, `Secure`, `SameSite=None` y host-only (sin atributo `Domain`). No se fabrica ni se imprime el JWT. El backend verifica también que el usuario siga activo y tenga rol `platform_admin`.
 
 Un `401` indica cookie ausente, JWT inválido o sesión expirada; inicia sesión nuevamente para obtener una sesión vigente. Un `403` indica permisos insuficientes o, según el cuerpo de respuesta, un origen/organización no permitido; confirma el rol activo `platform_admin` y la autorización del entorno. Ambas rutas están registradas en `api/src/server.ts` y requieren `requireSession` y `requirePlatformAdmin`.
 
-Si se expuso un JWT, no lo reutilices. El endpoint de logout solo borra la cookie del cliente y no revoca un JWT copiado; la API no mantiene revocación individual de sesiones. Para invalidar los JWT existentes, rota `SESSION_SECRET` en Render y reinicia o vuelve a desplegar la API; esto cierra todas las sesiones activas. Después inicia sesión de nuevo como administrador verificado y usa únicamente la cookie recién emitida. No compartas el token aquí.
+Si se expuso un JWT, considéralo comprometido y no lo reutilices. El endpoint de logout solo borra la cookie del cliente y no revoca un JWT copiado; la API no mantiene revocación individual de sesiones. Para invalidar los JWT existentes, rota `SESSION_SECRET` en Render y reinicia o vuelve a desplegar la API; esto cierra todas las sesiones activas. Después inicia sesión de nuevo como administrador verificado. No compartas el token en scripts, historial, repositorios ni conversaciones.
 
 ## Endpoints disponibles
 
